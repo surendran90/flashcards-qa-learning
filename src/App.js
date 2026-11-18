@@ -19,10 +19,6 @@ export default function App() {
   const [flipped, setFlipped] = useState(false);
   const [results, setResults] = useState({});
   const [status, setStatus] = useState("");
-  const [editing, setEditing] = useState(false);
-  const [draftQuestion, setDraftQuestion] = useState("");
-  const [draftAnswer, setDraftAnswer] = useState("");
-  const [saving, setSaving] = useState(false);
   const inputRef = useRef(null);
   const filtered = useMemo(() => cards.filter(card => topic === "All" || card.topic === topic), [cards, topic]);
 
@@ -105,55 +101,24 @@ export default function App() {
     if (!retryWrong) setResults({});
     setMode("running");
   };
+  const startStudy = () => {
+    const pool = topic === "All" ? filtered : filtered.slice(rangeStart - 1, rangeEnd);
+    if (!pool.length || !rangeValid) return;
+    setDeck([...pool]);
+    setIndex(0);
+    setMode("study");
+  };
   const answer = correct => {
     const next = { ...results, [deck[index].id]: correct };
     setResults(next);
     if (index + 1 >= deck.length) setMode("done");
     else { setIndex(index + 1); setFlipped(false); }
   };
-  const editCard = card => {
-    setDraftQuestion(card.question); setDraftAnswer(card.answer || "");
-    setEditing(true); setFlipped(true);
-  };
-  const saveEdits = async () => {
-    const card = deck[index];
-    const question = draftQuestion.trim();
-    const answerText = draftAnswer;
-    if (!question) { setStatus("Could not save: question cannot be empty."); return false; }
-    if (question === card.question && answerText === (card.answer || "")) { setEditing(false); return true; }
-    if (card.sourceFile !== "onedrive") {
-      setStatus("Could not save: this card was imported from a local file. Refresh the configured OneDrive workbook to edit its Excel row.");
-      return false;
-    }
-    setSaving(true); setStatus("Saving your changes to Excel…");
-    try {
-      const response = await fetch("/api/qa/update", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sheetName: card.sourceSheet, sourceRow: card.sourceRow,
-          questionColumn: card.questionColumn, answerColumn: card.answerColumn,
-          originalQuestion: card.question, originalAnswer: card.answer || "", question, answer: answerText }),
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Excel could not be updated.");
-      const updatedCard = { ...card, question, answer: answerText };
-      setDeck(current => current.map(item => item.id === card.id ? updatedCard : item));
-      setCards(current => current.map(item => item.id === card.id ? updatedCard : item));
-      setEditing(false); setStatus(`Saved changes to ${data.sheetName}, row ${data.sourceRow} in ${data.fileName}.`);
-      return true;
-    } catch (error) {
-      setStatus(`Could not save changes to Excel: ${error.message}`); return false;
-    } finally { setSaving(false); }
-  };
-  const rateCard = async correct => {
-    if (saving) return;
-    if (editing && !(await saveEdits())) return;
-    answer(correct);
-  };
   const buttonStyle = (background, extra = {}) => ({ border: 0, borderRadius: 10, padding: "11px 18px", color: "white", background, fontWeight: 700, ...extra });
 
   return <main style={{ maxWidth: 1000, margin: "0 auto", padding: "34px 22px 70px" }}>
     <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16, flexWrap: "wrap", marginBottom: 26 }}>
-      <div><div style={{ color: colors.muted, fontSize: 11, letterSpacing: 2, textTransform: "uppercase", marginBottom: 5 }}>Focused practice</div><h1 style={{ margin: 0, fontSize: 30 }}>💬 FlashCard Q/A Bank</h1><p style={{ color: colors.muted, margin: "7px 0 0", fontSize: 14 }}>Review questions, reveal answers, and track what needs practice.</p></div>
+      <div><div style={{ color: colors.muted, fontSize: 11, letterSpacing: 2, textTransform: "uppercase", marginBottom: 5 }}>Study and practice</div><h1 style={{ margin: 0, fontSize: 30 }}>💬 FlashCard Q/A Bank</h1><p style={{ color: colors.muted, margin: "7px 0 0", fontSize: 14 }}>Study questions and answers, or practice with flashcards.</p></div>
       <div style={{ display: "flex", alignItems: "center", gap: 9, flexWrap: "wrap" }}>
         <span style={{ color: colors.muted, fontSize: 13 }}>{loading ? "Loading workbook…" : `${cards.length} questions loaded`}</span>
         <button onClick={() => inputRef.current?.click()} style={{ ...buttonStyle(colors.ink), background: "#fff", color: colors.ink, border: `1px solid ${colors.border}` }}>📂 Import Excel</button>
@@ -189,21 +154,33 @@ export default function App() {
             <span style={{ fontSize: 11, color: rangeValid ? colors.muted : colors.red }}>{rangeValid ? "Inclusive" : `Enter 1–${filtered.length}, with From ≤ To`}</span>
           </div>}
           <label style={{ color: colors.muted, fontSize: 13 }}><input type="checkbox" checked={shuffle} onChange={e => setShuffle(e.target.checked)} /> 🔀 Shuffle</label>
+          <button disabled={loading || !filtered.length || !rangeValid} onClick={startStudy} style={{ ...buttonStyle(colors.ink), opacity: !loading && filtered.length && rangeValid ? 1 : .45 }}>📖 Study</button>
           <button disabled={loading || !filtered.length || !rangeValid} onClick={() => start(false)} style={{ ...buttonStyle(colors.accent), opacity: !loading && filtered.length && rangeValid ? 1 : .45 }}>▶ Start Practice</button>
         </div>
       </section>
       {!cards.length && !loading && <p style={{ textAlign: "center", color: colors.muted, marginTop: 24, fontSize: 14 }}>The app loads the configured OneDrive workbook on launch. It imports tabs whose cell A1 contains “QA”; use Refresh after editing that workbook.</p>}
     </>}
 
+    {mode === "study" && deck[index] && <section style={{ maxWidth: 720, margin: "0 auto" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, color: colors.muted, fontSize: 13 }}><span>Card {index + 1} / {deck.length}</span><button onClick={reset} style={{ border: 0, background: "none", color: colors.muted }}>Back to categories</button></div>
+      <div style={{ height: 6, borderRadius: 9, background: colors.border, marginBottom: 18 }}><div style={{ height: "100%", width: `${(index + 1) / deck.length * 100}%`, borderRadius: 9, background: colors.accent, transition: "width .2s" }} /></div>
+      <article style={{ minHeight: 235, background: "white", border: `1px solid ${colors.border}`, borderRadius: 18, padding: "30px", boxShadow: "0 8px 28px #24251a0b" }}>
+        <span style={{ display: "inline-block", color: colors.accent, background: "#e9f5ef", borderRadius: 20, padding: "5px 11px", fontSize: 11, fontWeight: 700, marginBottom: 18 }}>{deck[index].topic}</span>
+        <div style={{ fontSize: 19, lineHeight: 1.6, fontWeight: 700 }}>{deck[index].question}</div>
+        <div style={{ borderTop: `1px dashed ${colors.border}`, marginTop: 22, paddingTop: 19 }}><div style={{ color: colors.muted, fontSize: 11, fontWeight: 700, letterSpacing: 1, marginBottom: 8 }}>ANSWER</div><div style={{ lineHeight: 1.75, whiteSpace: "pre-wrap" }}>{deck[index].answer || <i style={{ color: colors.muted }}>No answer provided.</i>}</div></div>
+      </article>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 10, marginTop: 17 }}><button disabled={index === 0} onClick={() => setIndex(i => Math.max(0, i - 1))} style={{ ...buttonStyle(colors.ink), opacity: index === 0 ? .45 : 1 }}>← Previous</button><button disabled={index === deck.length - 1} onClick={() => setIndex(i => Math.min(deck.length - 1, i + 1))} style={{ ...buttonStyle(colors.accent), opacity: index === deck.length - 1 ? .45 : 1 }}>Next →</button></div>
+    </section>}
+
     {mode === "running" && deck[index] && <section style={{ maxWidth: 720, margin: "0 auto" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, color: colors.muted, fontSize: 13 }}><span>Question {index + 1} / {deck.length}</span><span>✅ {Object.values(results).filter(Boolean).length}　❌ {Object.values(results).filter(v => v === false).length}</span><button onClick={reset} style={{ border: 0, background: "none", color: colors.muted }}>End practice</button></div>
       <div style={{ height: 6, borderRadius: 9, background: colors.border, marginBottom: 18 }}><div style={{ height: "100%", width: `${index / deck.length * 100}%`, borderRadius: 9, background: colors.accent, transition: "width .2s" }} /></div>
       <article style={{ minHeight: 235, background: "white", border: `1px solid ${colors.border}`, borderRadius: 18, padding: "30px", textAlign: "center", boxShadow: "0 8px 28px #24251a0b" }}>
         <span style={{ display: "inline-block", color: colors.accent, background: "#e9f5ef", borderRadius: 20, padding: "5px 11px", fontSize: 11, fontWeight: 700, marginBottom: 18 }}>{deck[index].topic}</span>
-        {editing ? <><div style={{ color: colors.muted, fontSize: 11, fontWeight: 700, letterSpacing: 1, marginBottom: 8 }}>QUESTION</div><textarea aria-label="Edit question" value={draftQuestion} onChange={e => setDraftQuestion(e.target.value)} rows={4} style={{ width: "100%", boxSizing: "border-box", padding: 12, border: `1px solid ${colors.border}`, borderRadius: 9, font: "inherit", lineHeight: 1.5, resize: "vertical" }} /></> : <div style={{ fontSize: 19, lineHeight: 1.6, fontWeight: 700 }}>{deck[index].question}</div>}
-        {flipped && <div style={{ borderTop: `1px dashed ${colors.border}`, marginTop: 22, paddingTop: 19, textAlign: "left" }}><div style={{ color: colors.muted, fontSize: 11, fontWeight: 700, letterSpacing: 1, marginBottom: 8 }}>ANSWER</div>{editing ? <textarea aria-label="Edit answer" value={draftAnswer} onChange={e => setDraftAnswer(e.target.value)} rows={6} style={{ width: "100%", boxSizing: "border-box", padding: 12, border: `1px solid ${colors.border}`, borderRadius: 9, font: "inherit", lineHeight: 1.6, resize: "vertical" }} /> : <div style={{ lineHeight: 1.75, whiteSpace: "pre-wrap" }}>{deck[index].answer || <i style={{ color: colors.muted }}>No answer provided.</i>}</div>}</div>}
+        <div style={{ fontSize: 19, lineHeight: 1.6, fontWeight: 700 }}>{deck[index].question}</div>
+        {flipped && <div style={{ borderTop: `1px dashed ${colors.border}`, marginTop: 22, paddingTop: 19, textAlign: "left" }}><div style={{ color: colors.muted, fontSize: 11, fontWeight: 700, letterSpacing: 1, marginBottom: 8 }}>ANSWER</div><div style={{ lineHeight: 1.75, whiteSpace: "pre-wrap" }}>{deck[index].answer || <i style={{ color: colors.muted }}>No answer provided.</i>}</div></div>}
       </article>
-      <div style={{ display: "flex", justifyContent: "center", gap: 10, marginTop: 17, flexWrap: "wrap" }}>{!flipped ? <button onClick={() => setFlipped(true)} style={buttonStyle(colors.accent, { padding: "12px 24px" })}>👁 Reveal Answer</button> : <><button disabled={saving} onClick={() => rateCard(true)} style={{ ...buttonStyle(colors.accent), opacity: saving ? .6 : 1 }}>✅ {editing ? "Save & I knew it" : "I knew it"}</button><button disabled={saving} onClick={() => rateCard(false)} style={{ ...buttonStyle(colors.red), opacity: saving ? .6 : 1 }}>❌ {editing ? "Save & Practice again" : "Practice again"}</button></>}{!editing && deck[index].sourceFile === "onedrive" && <button onClick={() => editCard(deck[index])} style={{ ...buttonStyle(colors.ink), background: "#fff", color: colors.ink, border: `1px solid ${colors.border}` }}>✏️ Edit content</button>}{editing && <button onClick={() => { setEditing(false); setDraftQuestion(deck[index].question); setDraftAnswer(deck[index].answer || ""); }} style={{ ...buttonStyle(colors.ink), background: "#f1efe9", color: colors.muted }}>Cancel edit</button>}</div>
+      <div style={{ display: "flex", justifyContent: "center", gap: 10, marginTop: 17, flexWrap: "wrap" }}>{!flipped ? <button onClick={() => setFlipped(true)} style={buttonStyle(colors.accent, { padding: "12px 24px" })}>👁 Reveal Answer</button> : <><button onClick={() => answer(true)} style={buttonStyle(colors.accent)}>✅ I knew it</button><button onClick={() => answer(false)} style={buttonStyle(colors.red)}>❌ Practice again</button></>}</div>
       {!flipped && <div style={{ textAlign: "center", marginTop: 12 }}><button onClick={() => index + 1 >= deck.length ? setMode("done") : setIndex(index + 1)} style={{ border: 0, background: "none", color: colors.muted, textDecoration: "underline" }}>Skip</button></div>}
     </section>}
 
