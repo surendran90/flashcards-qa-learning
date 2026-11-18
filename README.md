@@ -2,11 +2,28 @@
 
 A question practice app that runs on your computer. It loads the Q/A tabs from your OneDrive workbook on launch; you can also import another workbook, practice by category, reveal answers, and retry questions you missed.
 
-[Quick start](#quick-start) · [Features](#features) · [Import questions](#import-questions) · [Data storage](#data-storage)
+[How it works](#how-it-works) · [Use cases](#use-cases) · [Quick start](#quick-start) · [Features](#features) · [Import questions](#import-questions) · [Data storage](#data-storage)
 
 ## What it does
 
 FlashCards QA Learning turns your interview Q&A workbook into a focused flashcard practice session. Choose one category or the full bank, decide whether to shuffle, and work through questions at your own pace.
+
+## How it works
+
+1. When the app starts, its local service looks for `InterviewPrepare.xlsx` in the configured OneDrive interview folder. It also recognizes the filename `Interview Prepare.xlsx`.
+2. The app reads only worksheets whose A1 cell contains `QA`. Each accepted worksheet becomes a category named exactly after its tab.
+3. Questions and answers are read from the worksheet rows below the A1 marker. Repeated question text is skipped so the same question does not appear more than once in the bank.
+4. Choose a category, optionally select a question range, and start practice. Reveal each answer, then mark whether you knew it or want to practice it again.
+5. The app tracks results for the session and lets you retry the questions you missed. If you edit a card loaded from OneDrive, the app saves the revised question and answer to that worksheet row when you choose **I knew it** or **Practice again**.
+6. Use **Refresh** after changing the workbook in Excel to load its latest tabs and content. A manually imported workbook replaces the current in-app bank for that session; its edits are not written back to the configured OneDrive workbook.
+
+## Use cases
+
+- **Prepare for a specific interview topic:** Select a category such as `Resume QA` or `Embedded QA` and practice only the questions you need.
+- **Focus on a smaller set:** Set a range such as 10 through 20 to review those questions from the selected category.
+- **Review weak areas:** Mark difficult cards **Practice again**, then retry only the missed questions at the end of the session.
+- **Improve an answer while studying:** Edit a OneDrive-loaded question or answer when you notice something to correct. The change is saved to Excel when you mark the card.
+- **Keep practice aligned with workbook updates:** Add or remove questions, mark a worksheet with `QA` in A1, or rename a tab in Excel, then select **Refresh** in the app.
 
 ## Quick start
 
