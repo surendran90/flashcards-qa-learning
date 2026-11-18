@@ -4,6 +4,8 @@ A question practice app that runs on your computer. It loads the Q/A tabs from y
 
 [How it works](#how-it-works) · [Use cases](#use-cases) · [Quick start](#quick-start) · [Features](#features) · [Import questions](#import-questions) · [Data storage](#data-storage)
 
+<img width="1046" height="652" alt="Screenshot 2026-11-18 at 10 49 15 PM" src="https://github.com/user-attachments/assets/b7500171-dc94-483a-aee9-c339e4a7fd5b" />
+
 ## What it does
 
 FlashCards QA Learning turns your interview Q&A workbook into a focused flashcard practice session. Choose one category or the full bank, decide whether to shuffle, and work through questions at your own pace.
@@ -12,7 +14,7 @@ FlashCards QA Learning turns your interview Q&A workbook into a focused flashcar
 
 1. When the app starts, its local service looks for `InterviewPrepare.xlsx` in the configured OneDrive interview folder. It also recognizes the filename `Interview Prepare.xlsx`.
 2. The app reads only worksheets whose A1 cell contains `QA`. Each accepted worksheet becomes a category named exactly after its tab.
-3. Questions and answers are read from the worksheet rows below the A1 marker. Repeated question text is skipped so the same question does not appear more than once in the bank.
+3. Questions and answers are read from the worksheet rows below the A1 marker. User must write question in A column and Answers in B column leaving the Marker(leaving first row).Repeated question text is skipped so the same question does not appear more than once in the bank. 
 4. Choose a category, optionally select a question range, and start practice. Reveal each answer, then mark whether you knew it or want to practice it again.
 5. The app tracks results for the session and lets you retry the questions you missed. If you edit a card loaded from OneDrive, the app saves the revised question and answer to that worksheet row when you choose **I knew it** or **Practice again**.
 6. Use **Refresh** after changing the workbook in Excel to load its latest tabs and content. A manually imported workbook replaces the current in-app bank for that session; its edits are not written back to the configured OneDrive workbook.
