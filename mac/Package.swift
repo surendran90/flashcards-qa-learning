@@ -4,6 +4,10 @@ import PackageDescription
 let package = Package(
     name: "FlashCardsQA",
     platforms: [.macOS(.v14)],
+    products: [
+        .executable(name: "FlashCardsQA", targets: ["FlashCardsQA"]),
+        .library(name: "FlashCardsCore", targets: ["FlashCardsCore"]),
+    ],
     dependencies: [
         .package(url: "https://github.com/CoreOffice/CoreXLSX.git", from: "0.14.2"),
         .package(url: "https://github.com/weichsel/ZIPFoundation.git", from: "0.9.19"),
