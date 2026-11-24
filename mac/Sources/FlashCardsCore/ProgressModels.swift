@@ -72,10 +72,15 @@ public enum Activity: String, Codable, Sendable, CaseIterable {
     public var label: String { self == .study ? "Studying" : "Revising" }
 }
 
-/// Time box per card: 20 minutes for program categories, 5 for Q&A, unless overridden.
+/// Time box per card: 20 minutes for program and module-knowledge categories, 5 for other Q&A,
+/// unless you pick another time for the category.
 public enum CardTiming {
+    /// Times offered on the card timer.
+    public static let choices = [5, 10, 15, 20, 30]
+
     public static func defaultMinutes(for category: String) -> Int {
-        category.lowercased().contains("program") ? 20 : 5
+        let c = category.lowercased()
+        return c.contains("program") || c.contains("module") ? 20 : 5
     }
 
     public static func minutes(for category: String, overrides: [String: Int]) -> Int {

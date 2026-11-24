@@ -62,6 +62,7 @@ public enum WorkbookLoader {
         }
         do {
             let shared = try file.parseSharedStrings()
+            let rich = RichCells.read(url)
             var sheets: [SheetData] = []
             for workbook in try file.parseWorkbooks() {
                 // Keep the tab order from the workbook (CoreXLSX may return paths in another order).
@@ -71,7 +72,8 @@ public enum WorkbookLoader {
                 }
                 for (name, path) in pairs {
                     let worksheet = try file.parseWorksheet(at: path)
-                    sheets.append(sheetData(name: name ?? path, path: path, worksheet: worksheet, shared: shared))
+                    sheets.append(sheetData(name: name ?? path, path: path, worksheet: worksheet, shared: shared,
+                                            rich: rich[WorkbookWriter.normalized(path)] ?? [:]))
                 }
             }
             return sheets
@@ -100,7 +102,9 @@ public enum WorkbookLoader {
         }
     }
 
-    static func sheetData(name: String, path: String? = nil, worksheet: Worksheet, shared: SharedStrings?) -> SheetData {
+    /// `rich` holds marked text (with bold) for cells that have bold runs; it replaces the plain value.
+    static func sheetData(name: String, path: String? = nil, worksheet: Worksheet, shared: SharedStrings?,
+                          rich: [Int: [Int: String]] = [:]) -> SheetData {
         var a1 = ""
         var rows: [[String]] = []
         var rowNumbers: [Int] = []
@@ -110,8 +114,8 @@ public enum WorkbookLoader {
             for cell in row.cells {
                 let col = columnIndex(cell.reference.column.value)
                 guard col >= 0 else { continue }
-                let value = text(of: cell, shared: shared)
-                if col == 0 && cell.reference.row == 1 { a1 = value }
+                let value = rich[Int(cell.reference.row)]?[col] ?? text(of: cell, shared: shared)
+                if col == 0 && cell.reference.row == 1 { a1 = FormattedText.plain(value) }
                 if values.count <= col { values.append(contentsOf: repeatElement("", count: col - values.count + 1)) }
                 values[col] = value
             }

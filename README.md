@@ -21,8 +21,8 @@ There are two ways to use it:
 | **FSRS-5 spaced repetition** with Again / Hard / Good / Easy ratings | ✅ | — |
 | **Study plan**: daily sessions, carry-over of missed work, finish-date estimate, 14-day outlook | ✅ | — |
 | **Reminders** before each study session | ✅ | — |
-| **Card timer**: 5 min per Q&A, 20 min per C program; studying and revising time logged | ✅ | — |
-| **Edit questions**: add, edit, reorder, delete, section dividers, new categories; saved straight to Excel with backups | ✅ | — |
+| **Card timer**: starts on each card; 5/10/15/20/30 min (20 for C Programs and Module Knowledge by default); time logged | ✅ | — |
+| **Edit questions**: add, edit (with bold, bullets, numbering), reorder, delete, section dividers, new categories; saved straight to Excel with backups | ✅ | — |
 | Code font for C Programs, light and dark mode, keyboard shortcuts | ✅ | — |
 | Runs without Terminal or a browser | ✅ | — |
 
@@ -67,7 +67,7 @@ This starts a small local service that reads the OneDrive workbook, plus the Rea
 
 - **Study daily while job hunting:** set your free time as morning, afternoon and evening sessions. The plan gives each session a target, moves missed work to the next session, and shows when you'll have learned everything.
 - **Remember answers until the interview:** practise with honest ratings (Again / Hard / Good / Easy). FSRS brings each card back just before you'd forget it, so time goes to weak cards, not ones you already know.
-- **Skip what you already know:** mark known cards **✓ Already studied** so they're scheduled weeks out and stay off today's list.
+- **Mark what you've learned:** press **Studied** on a card in Study mode. FSRS then schedules it for revision (first in about 3 days); press it again to unmark it.
 - **Handle interview or busy days:** **Busy today** moves the day's work to tomorrow and updates the finish date.
 - **Practise one topic:** pick a category such as `Embedded QA` or `C Programs`, optionally a range such as questions 10–20, then Study or Practice.
 - **Write code from memory:** C Programs cards use a code font with a 20-minute time box; write the program first, then reveal and compare.
@@ -119,7 +119,7 @@ It's built on long-standing memory research: the **spacing effect** (reviews spr
 - **Mastered:** FSRS expects you to still recall the card three weeks later (stability ≥ 21 days).
 - **Weak:** forgotten twice or more, or rated very difficult. FSRS already brings weak cards back sooner.
 - **Practice only:** answering a card that isn't due yet (for example from a category on the start screen) doesn't change its schedule. The card tells you so after you reveal the answer.
-- **New cards:** a new card joins the schedule after its first rating in **Test yourself**. **✓ Already studied** counts as an Easy rating.
+- **New cards:** a new card joins the schedule when you mark it **Studied** (an FSRS Good rating) or rate it in **Test yourself**.
 
 ## Mac app guide
 
@@ -132,7 +132,8 @@ It's built on long-standing memory research: the **spacing effect** (reviews spr
 ### Study and Practice
 
 - **Study:** shows the question and answer together. Use ← / → to move. The last card offers **✍️ Test yourself**, which practises the cards you just read.
-- **✓ Already studied** (key **A**): for new cards you already know. It counts as done today and comes back in about 16 days.
+- **Studied** (key **S**): a toggle on every Study card. When it's set (filled green ✓ Studied), the card counts as done today and FSRS schedules its first revision in about 3 days, as if you'd rated it Good. Press it again to unmark it: the card becomes new again. If the card already has practice history, you're asked to confirm first.
+- **✏️ Edit** (key **E**): edit the question and answer without leaving Study. The answer editor has **Bold** (⌘B), **bulleted list** and **numbered list** buttons, and saves to the workbook.
 - **Practice:**
   - **Space** reveals the answer, **1–4** rate it, **S** skips, **Esc** ends.
   - **Results** lists the cards you **forgot** and the **shaky** (Hard) ones. **Retry missed** practises the forgotten ones again.
@@ -140,9 +141,9 @@ It's built on long-standing memory research: the **spacing effect** (reviews spr
 
 ### Card timer
 
-Every card in Study and Practice has a timer in its corner. It's ready at **5 minutes for Q&A** and **20 minutes for C Programs** (you can set a time for each category in Settings).
+Every card in Study and Practice has a timer in its corner. It **starts by itself** when a card opens. The default time is **20 minutes for C Programs and Module Knowledge** and **5 minutes for other Q&A**. Select the time on the timer to choose 5, 10, 15, 20 or 30 minutes for that category; Settings has the same choice for every category.
 
-- **Start and pause:** select ▶ or press **⌥Space**. Moving to another card stops the timer.
+- **Pause and resume:** select ⏸/▶ or press **⌥Space**. Moving to another card starts that card's timer.
 - **Overtime:** when the time runs out, a sound plays and the timer turns red and counts overtime (`+1:20`).
 - **Logging:** time counts as **Studying** in Study mode and **Revising** in Practice, and is kept per category and per card. Time while the Mac sleeps isn't counted.
 - **Breaks:** after 50 minutes of timed work, the app suggests a 10-minute break.
@@ -180,7 +181,7 @@ Session times, focus, the reminder lead time, the time per category and the targ
 Select a category, then expand **Questions (N)** below Study / Start Practice. It's collapsed by default.
 
 - **Reorder:** drag ≡ onto another row. The rows move in Excel, together with any extra columns.
-- **View and edit:** select a question to see its answer, then **✏️ Edit**. It saves automatically about 1.5 seconds after you stop typing.
+- **View and edit:** select a question to see its answer, then **✏️ Edit**. The answer editor has **Bold** (⌘B), **bulleted list** and **numbered list** buttons. It saves automatically about 1.5 seconds after you stop typing.
 - **Add:** **＋ Add question** adds a row at the end of that category's sheet.
 - **Delete:** **🗑 Delete** asks for confirmation, then removes the row with no gap left behind.
 - **Section dividers:** **＋ Divider** (next to **＋ Add question**) adds a divider such as "Arrays" or "Linked Lists" to group the questions you learn together.
@@ -196,7 +197,7 @@ Changes save straight to the workbook the questions came from, and the study pla
 - **Backups:** before saving, a backup goes to `~/Library/Application Support/FlashCardsQA/backups/` (at most one every 5 minutes; the last 30 are kept).
 - **Workbook open in Excel:** the app waits and saves once you close it there.
 - **Checked before replacing:** each saved file is checked to still open as a valid workbook before it replaces the original.
-- **What changes:** only the edited question and answer cells. They're saved as plain text, and other sheets and formatting are kept.
+- **What changes:** only the edited question and answer cells. Bold is saved as real Excel bold, and bold you added in Excel shows bold in the app. Other sheets and formatting are kept.
 - **File type:** only `.xlsx` files can be edited. `.xls` files are read-only.
 
 ### Keyboard shortcuts
@@ -204,7 +205,7 @@ Changes save straight to the workbook the questions came from, and the study pla
 | Where | Keys |
 |---|---|
 | Anywhere | ⌘R Refresh · ⌘O Import Excel · ⌘L Study Plan · ⌘, Settings · ⌥Space start/pause the card timer |
-| Study | ← / → Previous / Next · A Already studied · Esc back |
+| Study | ← / → Previous / Next · S Studied on/off · E Edit · Esc back |
 | Practice | Space reveal · 1–4 Again / Hard / Good / Easy (K = Good, P = Again) · S skip · Esc end |
 
 ## Web app guide

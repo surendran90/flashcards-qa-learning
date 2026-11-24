@@ -200,7 +200,7 @@ private struct AlgorithmPanel: View {
             VStack(alignment: .leading, spacing: 5) {
                 line("Memory model", "each card has its own stability (how long you'll remember it), difficulty, and chance of recall today.")
                 line("Next review", "set for the day your chance of recall drops to \(target)% — easy cards wait longer, hard ones return sooner.")
-                line("Your ratings", "❌ Again (forgot) · 😬 Hard · ✅ Good · ⭐ Easy. ✓ Already studied counts as Easy.")
+                line("Your ratings", "❌ Again (forgot) · 😬 Hard · ✅ Good · ⭐ Easy. ✓ Studied (in Study mode) counts as Good.")
                 line("Practice only", "answering a card that isn't due yet doesn't change its schedule.")
                 line("Mastered", "when FSRS expects you to still recall the card three weeks later.")
             }

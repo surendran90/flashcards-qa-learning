@@ -15,7 +15,7 @@ final class StudySession {
     private(set) var lastActivity: Activity = .study
     /// True when the current study deck came from "Learn new", so its end offers a self-test.
     private(set) var studyingNewCards = false
-    /// Cards marked "Already studied" in the current study deck (skipped by "Test yourself").
+    /// Cards marked "Studied" in the current study deck (skipped by "Test yourself").
     private var alreadyStudied = Set<String>()
 
     // Editing the workbook
@@ -374,16 +374,28 @@ final class StudySession {
         beginPractice(rest.shuffled())
     }
 
-    /// "Already studied": the card is known from before, so it gets an FSRS Easy first review
-    /// (next review in about 16 days) and counts as done for today's session.
-    func markAlreadyStudied() {
-        guard let card = current, review(for: card) == nil else { return }
-        progress.data.cards[card.key] = FSRS.review(
-            nil, rating: .easy, topic: card.topic, today: today,
-            retention: progress.data.desiredRetention, clock: clock)
-        markDone(card)
-        alreadyStudied.insert(card.id)
-        if index + 1 < deck.count { index += 1 } else { testStudiedCards() }
+    /// A card is "studied" once it has an FSRS schedule (it will come back for revision).
+    func isStudied(_ card: Card) -> Bool { review(for: card) != nil }
+
+    /// Whether unsetting "Studied" would drop real practice history (more than the one Studied mark).
+    func hasPracticeHistory(_ card: Card) -> Bool { (review(for: card)?.reviews ?? 0) > 1 }
+
+    /// "Studied" toggle. Set: an FSRS Good review today, so the first revision is in about 3 days,
+    /// and the card counts as done for today's session. Unset: the card becomes new again.
+    func toggleStudied(_ card: Card) {
+        let day = today
+        if isStudied(card) {
+            progress.data.cards[card.key] = nil
+            progress.data.dayDone[day]?.removeAll { $0 == card.key }
+            alreadyStudied.remove(card.id)
+        } else {
+            progress.data.cards[card.key] = FSRS.review(
+                nil, rating: .good, topic: card.topic, today: day,
+                retention: progress.data.desiredRetention, clock: clock)
+            markDone(card)
+            alreadyStudied.insert(card.id)
+        }
+        onPlanChanged?()
     }
 
     func skip() { advance() }

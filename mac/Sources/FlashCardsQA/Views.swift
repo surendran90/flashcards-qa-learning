@@ -352,7 +352,7 @@ private struct CardView: View {
                     if card.answer.isEmpty {
                         Text("No answer provided.").italic().foregroundStyle(Theme.muted)
                     } else {
-                        Text(card.answer).font(Theme.answerFont(card.topic)).lineSpacing(6).textSelection(.enabled)
+                        FormattedAnswer(text: card.answer).font(Theme.answerFont(card.topic)).lineSpacing(6).textSelection(.enabled)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -369,6 +369,7 @@ private struct CardView: View {
 
 struct StudyView: View {
     @Environment(StudySession.self) private var session
+    @State private var editing: Card?
 
     var body: some View {
         if let card = session.current {
@@ -388,12 +389,12 @@ struct StudyView: View {
                         .disabled(session.index == 0)
                         .keyboardShortcut(.leftArrow, modifiers: [])
                     Spacer()
-                    if session.review(for: card) == nil {
-                        Button("✓ Already studied") { session.markAlreadyStudied() }
-                            .buttonStyle(OutlineButtonStyle())
-                            .keyboardShortcut("a", modifiers: [])
-                            .help("You know this card already: it skips today's test and comes back for review in about 16 days (A)")
-                    }
+                    StudiedToggle(card: card)
+                    Button("✏️ Edit") { editing = card }
+                        .buttonStyle(OutlineButtonStyle())
+                        .keyboardShortcut("e", modifiers: [])
+                        .help("Edit this question and answer (E)")
+                        .disabled(!session.canEdit)
                     if session.index == session.deck.count - 1 {
                         // Retrieval practice: finish a study pass by testing yourself.
                         Button("✍️ Test yourself on these (\(session.deck.count))") { session.testStudiedCards() }
@@ -407,13 +408,98 @@ struct StudyView: View {
                 }
                 .padding(.top, 17)
                 if session.studyingNewCards {
-                    Text("New cards join your review schedule once you test yourself on them.")
+                    Text("Press Studied (S) when you've learned a card — FSRS brings it back for revision. Or test yourself at the end.")
                         .font(.system(size: 11)).foregroundStyle(Theme.muted).padding(.top, 12)
                 }
             }
             .frame(maxWidth: 720)
             .frame(maxWidth: .infinity)
+            .sheet(item: $editing) { card in CardEditSheet(card: card) }
         }
+    }
+}
+
+/// "Studied" on/off: filled green when set (the card is in your revision schedule), outlined when not.
+struct StudiedToggle: View {
+    @Environment(StudySession.self) private var session
+    let card: Card
+    @State private var confirmUnset = false
+
+    var body: some View {
+        let on = session.isStudied(card)
+        Button {
+            if on && session.hasPracticeHistory(card) { confirmUnset = true } else { session.toggleStudied(card) }
+        } label: {
+            Label(on ? "Studied" : "Mark studied", systemImage: on ? "checkmark.circle.fill" : "circle")
+        }
+        .buttonStyle(FilledButtonStyle(color: on ? Theme.accent : Theme.subtle, foreground: on ? .white : Theme.ink))
+        .keyboardShortcut("s", modifiers: [])
+        .help(on ? "Studied — FSRS will bring it back for revision. Click to unmark (S)"
+                 : "Mark as studied — FSRS schedules the first revision in about 3 days (S)")
+        .confirmationDialog("Unmark “Studied”?", isPresented: $confirmUnset) {
+            Button("Unmark and reset", role: .destructive) { session.toggleStudied(card) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This card already has practice history. Unmarking makes it a new card again and clears its review schedule.")
+        }
+    }
+}
+
+/// Edit a card's question and answer from Study, with bold and list formatting. Saves to the workbook.
+struct CardEditSheet: View {
+    @Environment(StudySession.self) private var session
+    @Environment(\.dismiss) private var dismiss
+    let card: Card
+    @State private var question = ""
+    @State private var answer = ""
+    @State private var warning: String?
+    @State private var saving = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Edit card").font(.system(size: 16, weight: .bold))
+            Text("\(card.topic) · saves to \(session.sourceURL?.lastPathComponent ?? "the workbook")")
+                .font(.system(size: 12)).foregroundStyle(Theme.muted)
+            Text("QUESTION").font(.system(size: 10, weight: .bold)).kerning(1).foregroundStyle(Theme.muted)
+            TextField("Question", text: $question, axis: .vertical)
+                .font(Theme.questionFont(card.topic, size: 14))
+                .textFieldStyle(.roundedBorder)
+                .lineLimit(1...5)
+            Text("ANSWER").font(.system(size: 10, weight: .bold)).kerning(1).foregroundStyle(Theme.muted)
+            AnswerEditor(text: $answer, topic: card.topic, minHeight: 300)
+            if let warning {
+                Text(warning).font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.red)
+            }
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }
+                    .buttonStyle(OutlineButtonStyle())
+                    .keyboardShortcut(.cancelAction)
+                Button(saving ? "Saving…" : "Save") { Task { await save() } }
+                    .buttonStyle(FilledButtonStyle(color: Theme.accent))
+                    .keyboardShortcut(.return, modifiers: .command)
+                    .disabled(saving)
+            }
+        }
+        .padding(20)
+        .frame(width: 680)
+        .onAppear {
+            question = card.question
+            answer = card.answer
+        }
+    }
+
+    private func save() async {
+        let q = question.trimmingCharacters(in: .whitespacesAndNewlines)
+        let a = FormattedText.trimmed(answer)
+        guard q != card.question || a != card.answer else { dismiss(); return }
+        guard !q.isEmpty else { warning = "The question can't be empty."; return }
+        guard SectionDivider.title(of: q) == nil else { warning = "Questions can't start with ## (that marks a divider)."; return }
+        guard !session.isDuplicate(q, excluding: card) else { warning = "Another card already has this question."; return }
+        saving = true
+        let ok = await session.save(.update(card, question: q, answer: a))
+        saving = false
+        if ok { dismiss() } else { warning = session.editStatus }
     }
 }
 
@@ -536,7 +622,7 @@ struct ResultsView: View {
                         .font(.system(size: 11, weight: .bold))
                         .foregroundStyle(shaky ? Color(red: 0.85, green: 0.55, blue: 0.2) : Theme.red)
                     Text(card.question).font(Theme.questionFont(card.topic, size: 14))
-                    Text(card.answer.isEmpty ? "No answer provided." : card.answer)
+                    FormattedAnswer(text: card.answer.isEmpty ? "No answer provided." : card.answer)
                         .font(Theme.answerFont(card.topic, size: 13))
                         .foregroundStyle(Theme.muted).lineSpacing(4)
                 }
@@ -661,13 +747,14 @@ struct SettingsView: View {
                     Text("Load a workbook to set time per category.").foregroundStyle(.secondary)
                 }
                 ForEach(session.categories, id: \.self) { category in
-                    Stepper("\(category): \(CardTiming.minutes(for: category, overrides: store.data.categoryMinutes)) min",
-                            value: minutes(category), in: 1...60)
+                    Picker(category, selection: minutes(category)) {
+                        ForEach(CardTiming.choices, id: \.self) { Text("\($0) min").tag($0) }
+                    }
                 }
             } header: {
                 Text("Card timer")
             } footer: {
-                Text("Time box per card. Defaults: 20 min for program categories, 5 min for Q&A.")
+                Text("Time box per card. The timer starts when a card opens. Defaults: 20 min for C Programs and Module Knowledge, 5 min for other Q&A. You can also change it from the timer on any card.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
 

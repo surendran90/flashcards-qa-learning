@@ -3,8 +3,9 @@ import FlashCardsCore
 import Foundation
 import Observation
 
-/// Timer for the card on screen. Each card gets a time box (5 min Q&A, 20 min C programs);
-/// you start it yourself, and past the limit it keeps counting overtime.
+/// Timer for the card on screen. Each card gets a time box (by default 20 min for C programs and
+/// module knowledge, 5 min for other Q&A). It starts by itself when a card opens; past the
+/// limit it keeps counting overtime.
 /// Running time is logged as studying or revising per category and survives relaunches.
 @MainActor @Observable
 final class CardTimer {
@@ -58,6 +59,14 @@ final class CardTimer {
             elapsed = 0
         }
         modeAtStart = session.mode
+        if next != nil { start() }
+    }
+
+    /// Sets the time box for this card's category (applies to every card in it).
+    func setMinutes(_ minutes: Int) {
+        guard let card else { return }
+        store.data.categoryMinutes[card.topic] = minutes
+        alertedOvertime = !(remaining > 0) && alertedOvertime
     }
 
     /// Adds this card's time to the per-category averages used to size session targets.

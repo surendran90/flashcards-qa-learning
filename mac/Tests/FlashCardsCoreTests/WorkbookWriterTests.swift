@@ -26,7 +26,11 @@ enum Fixture {
     static func make(in folder: URL) throws -> URL {
         let url = folder.appendingPathComponent("Prep.xlsx")
         let sst = "<?xml version=\"1.0\" encoding=\"UTF-8\"?><sst xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" count=\"\(strings.count)\" uniqueCount=\"\(strings.count)\">"
-            + strings.map { "<si><t>\($0)</t></si>" }.joined() + "</sst>"
+            + strings.enumerated().map { i, s in
+                // "Heap allocation." (index 9) is stored as rich text: "Heap" in bold.
+                i == 9 ? "<si><r><rPr><b/><sz val=\"11\"/></rPr><t>Heap</t></r><r><rPr><sz val=\"11\"/></rPr><t xml:space=\"preserve\"> allocation.</t></r></si>"
+                       : "<si><t>\(s)</t></si>"
+            }.joined() + "</sst>"
         let files: [(String, String)] = [
             ("[Content_Types].xml", """
             <?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">\
@@ -135,7 +139,7 @@ final class WorkbookWriterTests: XCTestCase {
         try WorkbookWriter.reorderRows(url, sheetPath: c[0].sheetPath!, order: [c[2].excelRow, c[0].excelRow, c[1].excelRow], backupFolder: nil)
         let after = try cards()
         XCTAssertEqual(after.map(\.question), ["What is malloc?", "What is C?", "What is a pointer?"])
-        XCTAssertEqual(after.map(\.answer), ["Heap allocation.", "A language.", "An address."])
+        XCTAssertEqual(after.map { FormattedText.plain($0.answer) }, ["Heap allocation.", "A language.", "An address."])
         XCTAssertEqual(after.map(\.excelRow), [3, 4, 6])
         let sheets = try WorkbookLoader.readSheets(url: url)
         let ids = sheets[0].rows.dropFirst(2).map { $0[0] }
@@ -224,6 +228,30 @@ final class WorkbookWriterTests: XCTestCase {
         XCTAssertThrowsError(try WorkbookWriter.validateSheetName(String(repeating: "x", count: 32), existing: []))
         XCTAssertThrowsError(try WorkbookWriter.validateSheetName("c qa", existing: ["C QA"]))
         XCTAssertEqual(try WorkbookWriter.validateSheetName("  OS QA ", existing: ["C QA"]), "OS QA")
+    }
+
+    func testBoldFromSharedStringsIsKept() throws {
+        let malloc = try XCTUnwrap(cards().first { $0.question == "What is malloc?" })
+        XCTAssertEqual(FormattedText.runs(malloc.answer),
+                       [FormattedText.Run("Heap", bold: true), FormattedText.Run(" allocation.", bold: false)])
+        XCTAssertEqual(FormattedText.plain(malloc.answer), "Heap allocation.")
+    }
+
+    func testBoldRoundTripsAsRealExcelBold() throws {
+        let card = try cards()[0]
+        let marked = FormattedText.marked([.init("Use ", bold: false), .init("pointers", bold: true), .init(" carefully.", bold: false)])
+        try WorkbookWriter.setCells(url, sheetPath: card.sheetPath!, row: card.excelRow, cells: [card.answerColumn: marked], backupFolder: nil)
+        let xml = String(decoding: try Fixture.entry(url, "xl/worksheets/sheet1.xml"), as: UTF8.self)
+        XCTAssertTrue(xml.contains("<rPr><b/></rPr><t xml:space=\"preserve\">pointers</t>"), xml)
+        XCTAssertFalse(xml.contains("\u{E000}"), "markers never reach the file")
+        XCTAssertEqual(try cards()[0].answer, marked)
+    }
+
+    func testFormattedTextHelpers() {
+        let s = FormattedText.marked([.init("  a ", bold: false), .init("b", bold: true), .init("\n", bold: false)])
+        XCTAssertEqual(FormattedText.plain(FormattedText.trimmed(s)), "a b")
+        XCTAssertEqual(FormattedText.runs(FormattedText.trimmed(s)).last, FormattedText.Run("b", bold: true))
+        XCTAssertEqual(FormattedText.trimmed("  plain \n"), "plain")
     }
 
     func testCellRefs() {

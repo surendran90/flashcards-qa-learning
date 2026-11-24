@@ -251,7 +251,7 @@ struct QuestionListView: View {
                 if isEditing {
                     editor
                 } else {
-                    Text(card.answer.isEmpty ? "No answer yet." : card.answer)
+                    FormattedAnswer(text: card.answer.isEmpty ? "No answer yet." : card.answer)
                         .font(Theme.answerFont(topic, size: 13))
                         .foregroundStyle(card.answer.isEmpty ? Theme.muted : Theme.ink)
                         .lineSpacing(4)
@@ -294,13 +294,7 @@ struct QuestionListView: View {
                 .textFieldStyle(.roundedBorder)
                 .lineLimit(1...4)
             Text("ANSWER").font(.system(size: 10, weight: .bold)).kerning(1).foregroundStyle(Theme.muted)
-            TextEditor(text: $draftA)
-                .font(Theme.answerFont(topic, size: 13))
-                .frame(minHeight: 140)
-                .scrollContentBackground(.hidden)
-                .padding(6)
-                .background(Theme.card, in: RoundedRectangle(cornerRadius: 8))
-                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
+            AnswerEditor(text: $draftA, topic: topic)
             if let warning {
                 Text(warning).font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.red)
             }
@@ -352,7 +346,7 @@ struct QuestionListView: View {
     private func saveDraft() async {
         guard let card = editingCard, !saving else { return }
         let q = draftQ.trimmingCharacters(in: .whitespacesAndNewlines)
-        let a = draftA.trimmingCharacters(in: .whitespacesAndNewlines)
+        let a = FormattedText.trimmed(draftA)
         guard q != card.question || a != card.answer else { return }
         guard !q.isEmpty else { warning = "The question can't be empty."; return }
         guard SectionDivider.title(of: q) == nil else { warning = "Questions can't start with ## (that marks a divider)."; return }
@@ -381,13 +375,7 @@ struct QuestionListView: View {
                     .font(Theme.questionFont(topic, size: 13))
                     .textFieldStyle(.roundedBorder)
                     .lineLimit(1...4)
-                TextEditor(text: $newA)
-                    .font(Theme.answerFont(topic, size: 13))
-                    .frame(minHeight: 110)
-                    .scrollContentBackground(.hidden)
-                    .padding(6)
-                    .background(Theme.card, in: RoundedRectangle(cornerRadius: 8))
-                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
+                AnswerEditor(text: $newA, topic: topic, minHeight: 110)
                 if let warning, editingCard == nil {
                     Text(warning).font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.red)
                 }
@@ -418,7 +406,7 @@ struct QuestionListView: View {
     private func addQuestion() async {
         guard let sheet else { return }
         let q = newQ.trimmingCharacters(in: .whitespacesAndNewlines)
-        let a = newA.trimmingCharacters(in: .whitespacesAndNewlines)
+        let a = FormattedText.trimmed(newA)
         guard SectionDivider.title(of: q) == nil else {
             warning = "Questions can't start with ## (that marks a divider). Use ＋ Divider instead."
             return

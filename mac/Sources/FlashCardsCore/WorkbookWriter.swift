@@ -314,9 +314,25 @@ final class SheetXML {
         cell.removeAttribute(forName: "t")
         cell.setAttr("t", "inlineStr")
         let isEl = XMLElement(name: "is")
-        let t = XMLElement(name: "t", stringValue: text)
-        t.setAttr("xml:space", "preserve")
-        isEl.addChild(t)
+        if FormattedText.hasFormatting(text) {
+            // Real Excel bold: one <r> run per piece, with <rPr><b/></rPr> on the bold ones.
+            for run in FormattedText.runs(text) {
+                let r = XMLElement(name: "r")
+                if run.bold {
+                    let rPr = XMLElement(name: "rPr")
+                    rPr.addChild(XMLElement(name: "b"))
+                    r.addChild(rPr)
+                }
+                let t = XMLElement(name: "t", stringValue: run.text)
+                t.setAttr("xml:space", "preserve")
+                r.addChild(t)
+                isEl.addChild(r)
+            }
+        } else {
+            let t = XMLElement(name: "t", stringValue: text)
+            t.setAttr("xml:space", "preserve")
+            isEl.addChild(t)
+        }
         cell.addChild(isEl)
         // A row's "spans" hint may no longer cover new cells; Excel recomputes it.
         r.removeAttribute(forName: "spans")
@@ -392,7 +408,7 @@ enum CellRef {
     }
 }
 
-private extension XMLElement {
+extension XMLElement {
     func child(named name: String) -> XMLElement? { children(named: name).first }
 
     func children(named name: String) -> [XMLElement] {

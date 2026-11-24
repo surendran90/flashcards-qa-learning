@@ -134,6 +134,8 @@ extension StudySession {
     func reloadAfterEdit(_ url: URL) async {
         guard let loaded = try? await Task.detached(operation: { try WorkbookLoader.load(url: url) }).value else { return }
         cards = loaded.result.cards
+        // Keep an open Study/Practice deck showing the edited text.
+        deck = deck.map { old in cards.first { $0.id == old.id } ?? old }
         dividers = loaded.result.dividers
         sheetInfos = loaded.result.sheets
         categories = loaded.result.loadedSheets

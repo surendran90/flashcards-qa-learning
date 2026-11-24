@@ -15,10 +15,26 @@ struct CardTimerView: View {
                     .rotationEffect(.degrees(-90))
             }
             .frame(width: 18, height: 18)
-            Text(CardTiming.display(remaining: timer.remaining))
-                .font(.system(size: 14, weight: .bold).monospacedDigit())
-                .foregroundStyle(timer.isOvertime ? Theme.red : Theme.ink)
-                .fixedSize()
+            Menu {
+                Section("Time per card in \(timer.card?.topic ?? "this category")") {
+                    ForEach(CardTiming.choices, id: \.self) { m in
+                        Button {
+                            timer.setMinutes(m)
+                        } label: {
+                            if m == timer.limitMinutes { Label("\(m) min", systemImage: "checkmark") } else { Text("\(m) min") }
+                        }
+                    }
+                }
+            } label: {
+                Text(CardTiming.display(remaining: timer.remaining))
+                    .font(.system(size: 14, weight: .bold).monospacedDigit())
+                    .foregroundStyle(timer.isOvertime ? Theme.red : Theme.ink)
+                    .fixedSize()
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.visible)
+            .fixedSize()
+            .help("Click to choose the time per card for this category")
             Button { timer.toggle() } label: {
                 Image(systemName: timer.isRunning ? "pause.fill" : "play.fill")
                     .font(.system(size: 10, weight: .bold))

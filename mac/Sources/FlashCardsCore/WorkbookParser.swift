@@ -165,7 +165,7 @@ public enum WorkbookParser {
             var answerColumn = 1
             if rows.count > 1 {
                 for i in 1..<min(rows.count, 16) {
-                    let headers = rows[i].map(normalizeHeader)
+                    let headers = rows[i].map { normalizeHeader(FormattedText.plain($0)) }
                     if let q = headers.firstIndex(where: questionHeaders.contains),
                        let a = headers.firstIndex(where: answerHeaders.contains) {
                         headerIndex = i
@@ -183,12 +183,12 @@ public enum WorkbookParser {
 
             for (offset, row) in rows[firstDataRow...].enumerated() {
                 func cell(_ i: Int) -> String { i < row.count ? row[i] : "" }
-                let question = trimmed(cell(questionColumn))
-                var answer = trimmed(cell(answerColumn))
+                let question = trimmed(FormattedText.plain(cell(questionColumn)))
+                var answer = FormattedText.trimmed(cell(answerColumn))
                 var resolvedAnswerColumn = answerColumn
-                if answer.isEmpty && headerIndex < 0 && answerColumn + 1 < row.count {
-                    if let next = row.indices.dropFirst(answerColumn + 1).first(where: { !trimmed(row[$0]).isEmpty }) {
-                        answer = trimmed(row[next])
+                if FormattedText.plain(answer).isEmpty && headerIndex < 0 && answerColumn + 1 < row.count {
+                    if let next = row.indices.dropFirst(answerColumn + 1).first(where: { !trimmed(FormattedText.plain(row[$0])).isEmpty }) {
+                        answer = FormattedText.trimmed(row[next])
                         resolvedAnswerColumn = next
                     }
                 }

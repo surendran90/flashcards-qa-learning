@@ -14,6 +14,7 @@ final class CardTimingTests: XCTestCase {
         XCTAssertEqual(CardTiming.minutes(for: "C Programs", overrides: [:]), 20)
         XCTAssertEqual(CardTiming.minutes(for: "C QA", overrides: [:]), 5)
         XCTAssertEqual(CardTiming.minutes(for: "C QA", overrides: ["C QA": 8]), 8)
+        XCTAssertEqual(CardTiming.minutes(for: "Module Knowelege", overrides: [:]), 20)
     }
 
     func testDisplayAndOvertime() {
