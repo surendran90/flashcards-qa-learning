@@ -60,3 +60,11 @@ test("uses a renamed QA tab name as the category", () => {
   expect(result.loadedSheets).toEqual(["CV Preparation"]);
   expect(result.additions[0].topic).toBe("CV Preparation");
 });
+
+test("skips section divider rows (cells starting with ##)", () => {
+  const workbook = makeWorkbook({
+    "C QA": [["QA"], ["## Pointers", ""], ["What is a pointer?", "An address."]],
+  });
+  const result = parseExcelWorkbook(XLSX, workbook);
+  expect(result.additions.map(card => card.question)).toEqual(["What is a pointer?"]);
+});

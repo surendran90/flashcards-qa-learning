@@ -32,6 +32,12 @@ final class StudySession {
     }
 
     var cards: [Card] = []
+    /// Section dividers in each category's question list (rows starting with "## ").
+    var dividers: [SectionDivider] = []
+    /// Where each QA sheet keeps its questions (used to add rows, even to empty categories).
+    var sheetInfos: [SheetInfo] = []
+    /// A category created this session; its question list opens expanded.
+    var newlyCreatedCategory: String?
     var categories: [String] = []
     var loading = false
     var topic = "All"
@@ -134,6 +140,8 @@ final class StudySession {
         let r = loaded.result
         sourceURL = loaded.url
         cards = r.cards
+        dividers = r.dividers
+        sheetInfos = r.sheets
         categories = r.loadedSheets
         topic = "All"
         rangeFrom = "1"; rangeTo = ""

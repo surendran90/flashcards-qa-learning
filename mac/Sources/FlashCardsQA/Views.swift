@@ -119,6 +119,7 @@ struct StatusBanner: View {
 
 struct CategoryChips: View {
     @Environment(StudySession.self) private var session
+    @State private var showAddCategory = false
 
     var body: some View {
         FlowLayout(spacing: 7) {
@@ -137,7 +138,68 @@ struct CategoryChips: View {
                 }
                 .buttonStyle(.plain)
             }
+            if session.canEdit {
+                Button { showAddCategory = true } label: {
+                    Text("＋ Add category")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Theme.accent)
+                        .padding(.vertical, 7).padding(.horizontal, 13)
+                        .overlay(Capsule().strokeBorder(Theme.accent.opacity(0.7), style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .help("Create a new tab in the workbook for a new category")
+                .popover(isPresented: $showAddCategory, arrowEdge: .bottom) { AddCategoryForm(isPresented: $showAddCategory) }
+            }
         }
+    }
+}
+
+/// Creates a new worksheet tab (with "QA" in A1) that becomes a new category.
+struct AddCategoryForm: View {
+    @Environment(StudySession.self) private var session
+    @Binding var isPresented: Bool
+    @State private var name = ""
+    @State private var error: String?
+    @State private var saving = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("New category").font(.system(size: 15, weight: .bold))
+            Text("Adds a new tab to \(session.sourceURL?.lastPathComponent ?? "the workbook"). You can add questions right after.")
+                .font(.system(size: 12)).foregroundStyle(Theme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+            TextField("Category name, e.g. Linux QA", text: $name)
+                .textFieldStyle(.roundedBorder)
+                .onSubmit { Task { await create() } }
+            if let error {
+                Text(error).font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            HStack {
+                Spacer()
+                Button("Cancel") { isPresented = false }.buttonStyle(OutlineButtonStyle())
+                Button(saving ? "Creating…" : "Create") { Task { await create() } }
+                    .buttonStyle(FilledButtonStyle(color: Theme.accent))
+                    .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || saving)
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(18)
+        .frame(width: 340)
+    }
+
+    private func create() async {
+        do {
+            _ = try WorkbookWriter.validateSheetName(name, existing: session.categories)
+        } catch {
+            self.error = error.localizedDescription
+            return
+        }
+        saving = true
+        let ok = await session.save(.addCategory(name: name))
+        saving = false
+        if ok { isPresented = false } else { error = session.editStatus }
     }
 }
 
@@ -217,7 +279,7 @@ struct StartView: View {
     private var controls: some View {
         @Bindable var session = session
         return HStack(spacing: 14) {
-            if session.topic != "All" {
+            if session.topic != "All" && !session.filtered.isEmpty {
                 HStack(spacing: 8) {
                     Text("Question range").font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.muted)
                     rangeField("From", text: $session.rangeFrom)

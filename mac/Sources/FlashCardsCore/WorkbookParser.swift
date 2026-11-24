@@ -51,10 +51,53 @@ public struct SheetData: Sendable {
     }
 }
 
+/// A section divider inside a category's question list. Stored in the workbook as a row whose
+/// question cell starts with "## " (for example "## Arrays").
+public struct SectionDivider: Identifiable, Hashable, Sendable {
+    public static let prefix = "## "
+
+    public let sheet: String
+    public let title: String
+    public let excelRow: Int
+    public var id: String { "divider-\(sheet)-\(excelRow)" }
+
+    public init(sheet: String, title: String, excelRow: Int) {
+        self.sheet = sheet
+        self.title = title
+        self.excelRow = excelRow
+    }
+
+    /// The divider title if this cell text is a divider, else nil.
+    public static func title(of text: String) -> String? {
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard t.hasPrefix("##") else { return nil }
+        return String(t.dropFirst(2)).trimmingCharacters(in: .whitespaces)
+    }
+
+    public static func cellText(_ title: String) -> String { prefix + title.trimmingCharacters(in: .whitespacesAndNewlines) }
+}
+
+/// Where a QA sheet's questions live, so new rows can be added even when it has no cards yet.
+public struct SheetInfo: Hashable, Sendable {
+    public let name: String
+    public let path: String?
+    public let questionColumn: Int
+    public let answerColumn: Int
+
+    public init(name: String, path: String?, questionColumn: Int = 0, answerColumn: Int = 1) {
+        self.name = name
+        self.path = path
+        self.questionColumn = questionColumn
+        self.answerColumn = answerColumn
+    }
+}
+
 public struct ParseResult: Sendable {
     public var cards: [Card]
     public var loadedSheets: [String]
     public var duplicatesSkipped: Int
+    public var dividers: [SectionDivider] = []
+    public var sheets: [SheetInfo] = []
 }
 
 /// Swift port of `src/excelImport.js`.
@@ -109,6 +152,8 @@ public enum WorkbookParser {
         var cards: [Card] = []
         var loaded: [String] = []
         var duplicates = 0
+        var dividers: [SectionDivider] = []
+        var infos: [SheetInfo] = []
 
         for sheet in sheets where hasQAMarker(sheet.a1) {
             let rows = sheet.rows
@@ -132,6 +177,7 @@ public enum WorkbookParser {
             }
 
             let topic = trimmed(sheet.name)
+            infos.append(SheetInfo(name: topic, path: sheet.path, questionColumn: questionColumn, answerColumn: answerColumn))
             let firstDataRow = headerIndex >= 0 ? headerIndex + 1 : 1
             guard firstDataRow < rows.count else { continue }
 
@@ -147,6 +193,11 @@ public enum WorkbookParser {
                     }
                 }
                 if question.isEmpty || question.lowercased() == "question" { continue }
+                let excelRow = firstDataRow + offset < sheet.rowNumbers.count ? sheet.rowNumbers[firstDataRow + offset] : firstDataRow + offset + 1
+                if let title = SectionDivider.title(of: question) {
+                    dividers.append(SectionDivider(sheet: topic, title: title, excelRow: excelRow))
+                    continue
+                }
 
                 let key = question.lowercased()
                 if seen.contains(key) {
@@ -161,13 +212,14 @@ public enum WorkbookParser {
                     answer: answer,
                     sourceSheet: sheet.name,
                     sourceRow: rowNumber,
-                    excelRow: firstDataRow + offset < sheet.rowNumbers.count ? sheet.rowNumbers[firstDataRow + offset] : rowNumber,
+                    excelRow: excelRow,
                     questionColumn: questionColumn,
                     answerColumn: resolvedAnswerColumn,
                     sheetPath: sheet.path))
                 seen.insert(key)
             }
         }
-        return ParseResult(cards: cards, loadedSheets: loaded, duplicatesSkipped: duplicates)
+        return ParseResult(cards: cards, loadedSheets: loaded, duplicatesSkipped: duplicates,
+                           dividers: dividers, sheets: infos)
     }
 }

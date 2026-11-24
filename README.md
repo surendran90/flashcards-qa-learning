@@ -22,7 +22,7 @@ There are two ways to use it:
 | **Study plan**: daily sessions, carry-over of missed work, finish-date estimate, 14-day outlook | ✅ | — |
 | **Reminders** before each study session | ✅ | — |
 | **Card timer**: 5 min per Q&A, 20 min per C program; studying and revising time logged | ✅ | — |
-| **Edit questions**: add, edit, reorder, delete, saved straight to Excel with backups | ✅ | — |
+| **Edit questions**: add, edit, reorder, delete, section dividers, new categories; saved straight to Excel with backups | ✅ | — |
 | Code font for C Programs, light and dark mode, keyboard shortcuts | ✅ | — |
 | Runs without Terminal or a browser | ✅ | — |
 
@@ -72,7 +72,7 @@ This starts a small local service that reads the OneDrive workbook, plus the Rea
 - **Practise one topic:** pick a category such as `Embedded QA` or `C Programs`, optionally a range such as questions 10–20, then Study or Practice.
 - **Write code from memory:** C Programs cards use a code font with a 20-minute time box; write the program first, then reveal and compare.
 - **Track your effort:** see studying and revising time per day, per category and per card, and which cards are slowest.
-- **Keep the question bank up to date without opening Excel:** add, edit, reorder or delete questions from the app. Changes save to the workbook and the plan updates straight away.
+- **Keep the question bank up to date without opening Excel:** add, edit, reorder or delete questions, group them under section dividers, or create a new category, all from the app. Changes save to the workbook and the plan updates straight away.
 - **Use Excel when you prefer:** edit the workbook in Excel, then select **Refresh**.
 
 ## Study algorithm (FSRS)
@@ -183,6 +183,12 @@ Select a category, then expand **Questions (N)** below Study / Start Practice. I
 - **View and edit:** select a question to see its answer, then **✏️ Edit**. It saves automatically about 1.5 seconds after you stop typing.
 - **Add:** **＋ Add question** adds a row at the end of that category's sheet.
 - **Delete:** **🗑 Delete** asks for confirmation, then removes the row with no gap left behind.
+- **Section dividers:** **＋ Divider** (next to **＋ Add question**) adds a divider such as "Arrays" or "Linked Lists" to group the questions you learn together.
+  - **Rename:** double-click a divider, then press Return.
+  - **Move:** drag its ≡ handle anywhere between questions.
+  - **Delete:** use the ⋯ menu.
+  - **How it's stored:** a divider is a row whose question cell starts with `## ` (for example `## Arrays`). It moves with the questions in Excel, and it's never studied as a card. The web app skips these rows too.
+- **New category:** **＋ Add category** (after the category chips on the main page) adds a new tab to the workbook with `QA` in A1. The new category opens with its question list ready for the first question. Names follow Excel's tab rules: up to 31 characters, none of `[ ] : * ? / \`, and not already used.
 
 Changes save straight to the workbook the questions came from, and the study plan updates. Edited questions keep their review history, and duplicate questions aren't allowed.
 
@@ -220,6 +226,7 @@ The web app only reads the workbook and never writes to it.
 - **Which sheets load:** only sheets whose cell **A1** contains `QA` (case-insensitive, also `Q&A` or `Q/A`). Each one becomes a category named after its tab; other tabs are ignored.
 - **Layout:** below A1, put each **question in column A** and its **answer in column B**. Optional `Question` / `Answer` header rows are recognised, and those columns can be anywhere.
 - **Duplicates:** repeated question text is skipped, so each question appears once.
+- **Section dividers:** rows whose question starts with `##` (for example `## Arrays`) are section headings, not questions.
 - **Filename:** `InterviewPrepare.xlsx` and `Interview Prepare.xlsx` are both recognised. **Import Excel** loads any other workbook that follows the same rules.
 
 ## Data and privacy

@@ -1,12 +1,37 @@
 import FlashCardsCore
 import Foundation
 
-/// A change to the workbook from the question list.
+/// A change to the workbook from the question list or the main page.
 enum EditOp: Sendable {
     case update(Card, question: String, answer: String)
-    case add(template: Card, question: String, answer: String)
-    case reorder([Card])
+    case add(sheet: SheetInfo, question: String, answer: String)
+    /// Moves rows of one sheet: the content of `rows[i]` goes to the i-th smallest row.
+    case reorder(sheetPath: String, rows: [Int])
     case delete(Card)
+    case addDivider(sheet: SheetInfo, title: String)
+    case renameDivider(SectionDivider, sheet: SheetInfo, title: String)
+    case deleteDivider(SectionDivider, sheet: SheetInfo)
+    case addCategory(name: String)
+}
+
+/// One row of a category's question list: a question or a section divider.
+enum ListItem: Identifiable, Hashable {
+    case card(Card)
+    case divider(SectionDivider)
+
+    var id: String {
+        switch self {
+        case .card(let c): return c.key
+        case .divider(let d): return d.id
+        }
+    }
+
+    var excelRow: Int {
+        switch self {
+        case .card(let c): return c.excelRow
+        case .divider(let d): return d.excelRow
+        }
+    }
 }
 
 extension StudySession {
@@ -21,6 +46,14 @@ extension StudySession {
     }
 
     func cardsInSheet(of topic: String) -> [Card] { cards.filter { $0.topic == topic } }
+
+    func sheetInfo(for topic: String) -> SheetInfo? { sheetInfos.first { $0.name == topic } }
+
+    /// Questions and dividers of a category, in workbook order.
+    func listItems(of topic: String) -> [ListItem] {
+        (cards.filter { $0.topic == topic }.map(ListItem.card) + dividers.filter { $0.sheet == topic }.map(ListItem.divider))
+            .sorted { $0.excelRow < $1.excelRow }
+    }
 
     /// Saves one change to the workbook, reloads it, and updates the study plan.
     @discardableResult
@@ -46,6 +79,11 @@ extension StudySession {
                 progress.data.renameCard(from: card.key, to: CardKey.make(question))
             }
             await reloadAfterEdit(url)
+            if case .addCategory(let name) = op {
+                let created = categories.first { $0.caseInsensitiveCompare(name.trimmingCharacters(in: .whitespaces)) == .orderedSame }
+                newlyCreatedCategory = created
+                if let created { setFilter(created) }
+            }
             setEditStatus("Saved to \(url.lastPathComponent) ✓")
             return true
         } catch let error as WorkbookWriterError {
@@ -67,16 +105,28 @@ extension StudySession {
             guard let sheet = card.sheetPath else { throw WorkbookWriterError.sheetNotFound(card.sourceSheet) }
             try WorkbookWriter.setCells(url, sheetPath: sheet, row: card.excelRow,
                                         cells: [card.questionColumn: q, card.answerColumn: a], backupFolder: backups)
-        case .add(let template, let q, let a):
-            guard let sheet = template.sheetPath else { throw WorkbookWriterError.sheetNotFound(template.sourceSheet) }
-            try WorkbookWriter.appendRow(url, sheetPath: sheet,
-                                         cells: [template.questionColumn: q, template.answerColumn: a], backupFolder: backups)
-        case .reorder(let cards):
-            guard let sheet = cards.first?.sheetPath else { return }
-            try WorkbookWriter.reorderRows(url, sheetPath: sheet, order: cards.map(\.excelRow), backupFolder: backups)
+        case .add(let sheet, let q, let a):
+            guard let path = sheet.path else { throw WorkbookWriterError.sheetNotFound(sheet.name) }
+            try WorkbookWriter.appendRow(url, sheetPath: path,
+                                         cells: [sheet.questionColumn: q, sheet.answerColumn: a], backupFolder: backups)
+        case .reorder(let path, let rows):
+            try WorkbookWriter.reorderRows(url, sheetPath: path, order: rows, backupFolder: backups)
         case .delete(let card):
             guard let sheet = card.sheetPath else { throw WorkbookWriterError.sheetNotFound(card.sourceSheet) }
             try WorkbookWriter.deleteRow(url, sheetPath: sheet, row: card.excelRow, backupFolder: backups)
+        case .addDivider(let sheet, let title):
+            guard let path = sheet.path else { throw WorkbookWriterError.sheetNotFound(sheet.name) }
+            try WorkbookWriter.appendRow(url, sheetPath: path,
+                                         cells: [sheet.questionColumn: SectionDivider.cellText(title)], backupFolder: backups)
+        case .renameDivider(let divider, let sheet, let title):
+            guard let path = sheet.path else { throw WorkbookWriterError.sheetNotFound(sheet.name) }
+            try WorkbookWriter.setCells(url, sheetPath: path, row: divider.excelRow,
+                                        cells: [sheet.questionColumn: SectionDivider.cellText(title)], backupFolder: backups)
+        case .deleteDivider(let divider, let sheet):
+            guard let path = sheet.path else { throw WorkbookWriterError.sheetNotFound(sheet.name) }
+            try WorkbookWriter.deleteRow(url, sheetPath: path, row: divider.excelRow, backupFolder: backups)
+        case .addCategory(let name):
+            try WorkbookWriter.addSheet(url, name: name, backupFolder: backups)
         }
     }
 
@@ -84,6 +134,8 @@ extension StudySession {
     func reloadAfterEdit(_ url: URL) async {
         guard let loaded = try? await Task.detached(operation: { try WorkbookLoader.load(url: url) }).value else { return }
         cards = loaded.result.cards
+        dividers = loaded.result.dividers
+        sheetInfos = loaded.result.sheets
         categories = loaded.result.loadedSheets
         if topic != "All" && !categories.contains(topic) { topic = "All" }
         rangeTo = String(max(1, count(for: topic)))

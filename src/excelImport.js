@@ -77,6 +77,8 @@ function parseExcelWorkbook(XLSX, workbook) {
         }
       }
       if (!question || /^question$/i.test(question)) return;
+      // Rows starting with "##" are section dividers added in the Mac app, not questions.
+      if (/^##/.test(question)) return;
 
       const key = question.toLowerCase();
       if (seenQuestions.has(key)) {

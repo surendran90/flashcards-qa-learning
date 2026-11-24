@@ -172,6 +172,60 @@ final class WorkbookWriterTests: XCTestCase {
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: backups.path).count, 2)
     }
 
+    func testDividerRowsAreSectionsNotCards() throws {
+        let c = try cards()
+        // Turn the blank-free row 4 ("What is a pointer?") into a divider.
+        try WorkbookWriter.setCells(url, sheetPath: c[1].sheetPath!, row: c[1].excelRow,
+                                    cells: [c[1].questionColumn: SectionDivider.cellText("Pointers"), c[1].answerColumn: ""],
+                                    backupFolder: nil)
+        let loaded = try WorkbookLoader.load(url: url).result
+        XCTAssertEqual(loaded.cards.map(\.question), ["What is C?", "What is malloc?"])
+        XCTAssertEqual(loaded.dividers.map(\.title), ["Pointers"])
+        XCTAssertEqual(loaded.dividers.first?.excelRow, 4)
+        XCTAssertEqual(loaded.sheets.first?.questionColumn, 1)
+        XCTAssertEqual(loaded.sheets.first?.answerColumn, 2)
+    }
+
+    func testReorderMovesDividersWithQuestions() throws {
+        let c = try cards()
+        let path = c[0].sheetPath!
+        try WorkbookWriter.appendRow(url, sheetPath: path, cells: [1: "## Memory"], backupFolder: nil)   // row 7
+        // Put the divider first: rows [7, 3, 4, 6] into slots [3, 4, 6, 7].
+        try WorkbookWriter.reorderRows(url, sheetPath: path, order: [7, 3, 4, 6], backupFolder: nil)
+        let loaded = try WorkbookLoader.load(url: url).result
+        XCTAssertEqual(loaded.dividers.map(\.excelRow), [3])
+        XCTAssertEqual(loaded.cards.map(\.excelRow), [4, 6, 7])
+    }
+
+    func testAddSheetCreatesEmptyCategory() throws {
+        let path = try WorkbookWriter.addSheet(url, name: "Linux QA", backupFolder: nil)
+        XCTAssertEqual(path, "xl/worksheets/sheet3.xml")
+        var loaded = try WorkbookLoader.load(url: url)
+        XCTAssertEqual(loaded.result.loadedSheets, ["C QA", "Linux QA"])
+        XCTAssertEqual(loaded.sheetNames, ["C QA", "Notes", "Linux QA"])
+        let info = try XCTUnwrap(loaded.result.sheets.first { $0.name == "Linux QA" })
+        XCTAssertEqual(info.questionColumn, 0)
+        XCTAssertEqual(info.answerColumn, 1)
+
+        // Questions can be added straight away.
+        try WorkbookWriter.appendRow(url, sheetPath: info.path!, cells: [0: "What is a process?", 1: "A running program."], backupFolder: nil)
+        loaded = try WorkbookLoader.load(url: url)
+        let linux = loaded.result.cards.filter { $0.topic == "Linux QA" }
+        XCTAssertEqual(linux.map(\.question), ["What is a process?"])
+        XCTAssertEqual(linux.first?.excelRow, 2)
+
+        let types = String(decoding: try Fixture.entry(url, "[Content_Types].xml"), as: UTF8.self)
+        XCTAssertTrue(types.contains("/xl/worksheets/sheet3.xml"))
+    }
+
+    func testSheetNameRules() {
+        XCTAssertThrowsError(try WorkbookWriter.validateSheetName("  ", existing: []))
+        XCTAssertThrowsError(try WorkbookWriter.validateSheetName("a/b", existing: []))
+        XCTAssertThrowsError(try WorkbookWriter.validateSheetName(String(repeating: "x", count: 32), existing: []))
+        XCTAssertThrowsError(try WorkbookWriter.validateSheetName("c qa", existing: ["C QA"]))
+        XCTAssertEqual(try WorkbookWriter.validateSheetName("  OS QA ", existing: ["C QA"]), "OS QA")
+    }
+
     func testCellRefs() {
         XCTAssertEqual(CellRef.letters(0), "A")
         XCTAssertEqual(CellRef.letters(27), "AB")

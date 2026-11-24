@@ -6,6 +6,7 @@ public enum WorkbookWriterError: LocalizedError, Equatable {
     case unsupportedFormat
     case sheetNotFound(String)
     case invalidResult
+    case invalidName(String)
     case io(String)
 
     public var errorDescription: String? {
@@ -14,6 +15,7 @@ public enum WorkbookWriterError: LocalizedError, Equatable {
         case .unsupportedFormat: return "Only .xlsx workbooks can be edited. Save the file as .xlsx in Excel first."
         case .sheetNotFound(let path): return "Couldn't find the worksheet (\(path)) in the workbook."
         case .invalidResult: return "The change couldn't be saved safely, so the workbook was left as it was."
+        case .invalidName(let message): return message
         case .io(let message): return "Couldn't save the workbook: \(message)"
         }
     }
@@ -104,39 +106,55 @@ public enum WorkbookWriter {
     }
 
     static func modifySheet(_ url: URL, sheetPath: String, backupFolder: URL?, _ change: (SheetXML) throws -> Void) throws {
+        let target = normalized(sheetPath)
+        try rewriteArchive(url, backupFolder: backupFolder) { read in
+            guard let xml = try read(target) else { throw WorkbookWriterError.sheetNotFound(target) }
+            let sheet = try SheetXML(data: xml)
+            try change(sheet)
+            sheet.updateDimension()
+            return [target: sheet.data()]
+        }
+    }
+
+    /// Rewrites the .xlsx with some parts replaced or added. `build` gets a reader for existing
+    /// parts (nil if missing) and returns the new contents by path. Everything else is copied as is.
+    /// The result must load as a workbook before it replaces the original (with a backup first).
+    static func rewriteArchive(_ url: URL, backupFolder: URL?,
+                               _ build: (_ read: (String) throws -> Data?) throws -> [String: Data]) throws {
         guard url.pathExtension.lowercased() == "xlsx" else { throw WorkbookWriterError.unsupportedFormat }
         if isLocked(url) { throw WorkbookWriterError.locked(url.lastPathComponent) }
-        let target = normalized(sheetPath)
         let fm = FileManager.default
 
         do {
             let source = try Archive(url: url, accessMode: .read)
-            guard let entry = source[target] else { throw WorkbookWriterError.sheetNotFound(target) }
-            var xml = Data()
-            _ = try source.extract(entry, skipCRC32: false) { xml.append($0) }
-
-            let sheet = try SheetXML(data: xml)
-            try change(sheet)
-            sheet.updateDimension()
-            let newXML = sheet.data()
+            func read(_ path: String) throws -> Data? {
+                guard let entry = source[normalized(path)] else { return nil }
+                var data = Data()
+                _ = try source.extract(entry, skipCRC32: false) { data.append($0) }
+                return data
+            }
+            var changes = try build(read)
 
             let tmp = fm.temporaryDirectory.appendingPathComponent("flashcards-\(UUID().uuidString).xlsx")
             defer { try? fm.removeItem(at: tmp) }
             let out = try Archive(url: tmp, accessMode: .create)
-            for e in source {
-                guard e.type == .file else { continue }
-                var data = Data()
-                if e.path == target {
-                    data = newXML
-                } else {
-                    _ = try source.extract(e, skipCRC32: false) { data.append($0) }
-                }
-                let bytes = data
-                try out.addEntry(with: e.path, type: .file, uncompressedSize: Int64(bytes.count),
+            func add(_ path: String, _ bytes: Data) throws {
+                try out.addEntry(with: path, type: .file, uncompressedSize: Int64(bytes.count),
                                  compressionMethod: .deflate) { position, size in
                     bytes.subdata(in: Int(position)..<Int(position) + size)
                 }
             }
+            for e in source {
+                guard e.type == .file else { continue }
+                if let replacement = changes.removeValue(forKey: e.path) {
+                    try add(e.path, replacement)
+                } else {
+                    var data = Data()
+                    _ = try source.extract(e, skipCRC32: false) { data.append($0) }
+                    try add(e.path, data)
+                }
+            }
+            for (path, data) in changes.sorted(by: { $0.key < $1.key }) { try add(path, data) }
 
             // Sanity check: the new file must still read as a workbook.
             _ = try WorkbookLoader.load(url: tmp)
@@ -151,6 +169,90 @@ public enum WorkbookWriter {
         } catch {
             throw WorkbookWriterError.io(error.localizedDescription)
         }
+    }
+
+    // MARK: New category (worksheet)
+
+    static let relsNS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+    static let worksheetType = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet"
+    static let worksheetContentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"
+
+    /// Excel's rules for tab names: 1–31 characters, none of [ ] : * ? / \\, not starting or ending with '.
+    public static func validateSheetName(_ raw: String, existing: [String]) throws -> String {
+        let name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { throw WorkbookWriterError.invalidName("Enter a category name.") }
+        guard name.count <= 31 else { throw WorkbookWriterError.invalidName("Category names can be at most 31 characters (Excel's limit).") }
+        if let bad = name.first(where: { "[]:*?/\\".contains($0) }) {
+            throw WorkbookWriterError.invalidName("Category names can't contain “\(bad)”.")
+        }
+        guard !name.hasPrefix("'"), !name.hasSuffix("'") else {
+            throw WorkbookWriterError.invalidName("Category names can't start or end with an apostrophe.")
+        }
+        guard !existing.contains(where: { $0.caseInsensitiveCompare(name) == .orderedSame }) else {
+            throw WorkbookWriterError.invalidName("There's already a tab called “\(name)”.")
+        }
+        return name
+    }
+
+    /// Adds a new worksheet (tab) with "QA" in A1 so the app picks it up as a category.
+    /// Returns the new sheet's path inside the .xlsx.
+    @discardableResult
+    public static func addSheet(_ url: URL, name raw: String, backupFolder: URL?) throws -> String {
+        var newPath = ""
+        try rewriteArchive(url, backupFolder: backupFolder) { read in
+            guard let wbData = try read("xl/workbook.xml"),
+                  let relsData = try read("xl/_rels/workbook.xml.rels"),
+                  let typesData = try read("[Content_Types].xml") else { throw WorkbookWriterError.invalidResult }
+            let wb = try XMLDocument(data: wbData, options: [.nodePreserveWhitespace])
+            let rels = try XMLDocument(data: relsData, options: [.nodePreserveWhitespace])
+            let types = try XMLDocument(data: typesData, options: [.nodePreserveWhitespace])
+            guard let sheets = wb.rootElement()?.child(named: "sheets"),
+                  let relsRoot = rels.rootElement(), let typesRoot = types.rootElement() else {
+                throw WorkbookWriterError.invalidResult
+            }
+
+            let existingNames = sheets.children(named: "sheet").compactMap { $0.attr("name") }
+            let name = try validateSheetName(raw, existing: existingNames)
+
+            let sheetId = (sheets.children(named: "sheet").compactMap { $0.attr("sheetId").flatMap(Int.init) }.max() ?? 0) + 1
+            let relIds = Set(relsRoot.children(named: "Relationship").compactMap { $0.attr("Id") })
+            var n = relIds.count + 1
+            while relIds.contains("rId\(n)") { n += 1 }
+            let relId = "rId\(n)"
+            var k = 1
+            while try read("xl/worksheets/sheet\(k).xml") != nil { k += 1 }
+            newPath = "xl/worksheets/sheet\(k).xml"
+
+            let sheet = XMLElement(name: "sheet")
+            sheet.setAttr("name", name)
+            sheet.setAttr("sheetId", "\(sheetId)")
+            sheet.addAttribute(XMLNode.attribute(withName: "r:id", uri: relsNS, stringValue: relId) as! XMLNode)
+            sheets.addChild(sheet)
+
+            let rel = XMLElement(name: "Relationship")
+            rel.setAttr("Id", relId)
+            rel.setAttr("Type", worksheetType)
+            rel.setAttr("Target", "worksheets/sheet\(k).xml")
+            relsRoot.addChild(rel)
+
+            let override = XMLElement(name: "Override")
+            override.setAttr("PartName", "/\(newPath)")
+            override.setAttr("ContentType", worksheetContentType)
+            typesRoot.addChild(override)
+
+            let sheetXML = """
+            <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+            <worksheet xmlns="\(mainNS)" xmlns:r="\(relsNS)"><dimension ref="A1"/><sheetData>\
+            <row r="1"><c r="A1" t="inlineStr"><is><t>QA</t></is></c></row></sheetData></worksheet>
+            """
+            return [
+                "xl/workbook.xml": wb.xmlData(options: [.nodeCompactEmptyElement]),
+                "xl/_rels/workbook.xml.rels": rels.xmlData(options: [.nodeCompactEmptyElement]),
+                "[Content_Types].xml": types.xmlData(options: [.nodeCompactEmptyElement]),
+                newPath: Data(sheetXML.utf8),
+            ]
+        }
+        return newPath
     }
 }
 
