@@ -2,7 +2,7 @@
 
 A question study and practice app that runs on your computer. It loads the Q/A tabs from your OneDrive workbook on launch; you can also import another workbook, study questions and answers, practice by category, and retry questions you missed.
 
-[How it works](#how-it-works) · [Use cases](#use-cases) · [Quick start](#quick-start) · [Features](#features) · [Import questions](#import-questions) · [Data storage](#data-storage)
+[How it works](#how-it-works) · [Use cases](#use-cases) · [Quick start](#quick-start) · [Features](#features) · [Import questions](#import-questions) · [Data storage](#data-storage) · [Mac app](#mac-app)
 
 <img width="1046" height="652" alt="Screenshot 2026-11-18 at 10 49 15 PM" src="https://github.com/user-attachments/assets/b7500171-dc94-483a-aee9-c339e4a7fd5b" />
 
@@ -93,6 +93,29 @@ Use **Refresh** to re-read the OneDrive workbook after editing it. Use **Import 
 ## Data storage
 
 The workbook remains the source of truth. On launch and when you select **Refresh**, the app reads the configured local OneDrive file through its local-only service. Cards cannot be edited in the app, and neither OneDrive-loaded nor manually imported workbook data is written back to any workbook.
+
+## Mac app
+
+A native SwiftUI version lives in [`mac/`](mac/). It reads the same OneDrive workbook directly, so there is no Node server, no Terminal window and no browser.
+
+Build it and install it into `/Applications` (needs Xcode):
+
+```bash
+cd mac && ./build-app.sh --install
+```
+
+Then open **FlashCards QA** from Launchpad or Spotlight. It has the same features as the web app, plus:
+
+- **⌘R** refreshes the workbook, and **⌘O** imports another one.
+- **Settings (⌘,)** changes the workbook folder if your OneDrive path moves.
+- In practice mode, **Space** reveals the answer, **K** marks it known, **P** marks it to practice again, **S** skips, and **Esc** ends the session. In study mode, use **←/→**.
+- It follows the system light or dark theme.
+
+Notes:
+
+- Only `.xlsx` workbooks are supported. Save older `.xls` files as `.xlsx` first.
+- The build is signed ad hoc for your Mac only. It is not notarized for sharing.
+- Run the parser tests with `cd mac && swift test`. To work on the code in Xcode, open `mac/Package.swift`.
 
 ## Build for production
 
