@@ -96,7 +96,8 @@ final class StudySession {
     /// Days until the next review for each rating of the current card.
     var ratingPreview: [Rating: Int] {
         guard let card = current, isScheduled(card) else { return [:] }
-        return FSRS.preview(review(for: card), today: today, retention: progress.data.desiredRetention, clock: clock)
+        return Scheduler.preview(review(for: card), today: today, retention: progress.data.desiredRetention,
+                                 useCheckpoints: progress.data.useCheckpoints, clock: clock)
     }
     var current: Card? { deck.indices.contains(index) ? deck[index] : nil }
 
@@ -150,7 +151,6 @@ final class StudySession {
             ? " (no tabs with QA in cell A1 were found)"
             : " from \(r.loadedSheets.joined(separator: ", "))"
         let dupes = r.duplicatesSkipped > 0 ? " \(r.duplicatesSkipped) repeated questions were skipped." : ""
-        ensureToday()
         onPlanChanged?()
         setStatus("Loaded \(r.cards.count) questions from \(source)\(sheets).\(dupes)")
     }
@@ -224,105 +224,152 @@ final class StudySession {
         advance()
     }
 
-    // MARK: Study plan (sessions)
+    // MARK: Daily plan: FSRS revision first, then your own tasks
 
     var today: String { clock.key(Date()) }
-    var nowMinute: Int { clock.minuteOfDay(Date()) }
-    /// Bumped every minute by the app so time-based views (session status) refresh.
+    /// Bumped every minute by the app so date-based views refresh after midnight.
     var minuteTick = 0
-    /// Called after targets change, so session reminders can be rescheduled.
+    /// Called after reviews or tasks change, so the morning reminder can be rescheduled.
     @ObservationIgnored var onPlanChanged: (() -> Void)?
-
-    var plan: StudyPlan { progress.data.plan }
-
-    /// Cards in the plan's categories (all when none are chosen), in workbook order.
-    var planCards: [Card] {
-        let chosen = Set(plan.categories)
-        return cards.filter { chosen.isEmpty || chosen.contains($0.topic) }
-    }
-    var planScope: [PlanCard] { planCards.map { PlanCard(key: $0.key, topic: $0.topic) } }
 
     func review(for card: Card) -> CardReview? { progress.data.cards[card.key] }
 
+    /// Cards FSRS wants revised today (overdue ones included).
     var dueCards: [Card] {
+        _ = minuteTick
         let day = today
-        return planCards.filter { SpacedRepetition.isDue(review(for: $0), on: day) }
+        return cards.filter { SpacedRepetition.isDue(review(for: $0), on: day) }
     }
-    var weakCards: [Card] { planCards.filter { SpacedRepetition.isWeak(review(for: $0)) } }
-    var newCards: [Card] { planCards.filter { review(for: $0) == nil } }
-    var todaysNewCards: [Card] { let d = today; return planCards.filter { review(for: $0)?.introducedDay == d } }
+    var revisedTodayCount: Int {
+        RevisionOutlook.revisedToday(progress.data, keys: cards.map(\.key), today: today)
+    }
+    var weakCards: [Card] { cards.filter { SpacedRepetition.isWeak(review(for: $0)) } }
+    var newCards: [Card] { cards.filter { review(for: $0) == nil } }
+    var todaysNewCards: [Card] { let d = today; return cards.filter { review(for: $0)?.introducedDay == d } }
 
-    var allSlots: [StudySlot] { progress.data.slots.filter(\.enabled).sorted { $0.start < $1.start } }
-    var studySlots: [StudySlot] { SessionPlanner.studySlots(progress.data.slots) }
+    func revisionOutlook(days: Int = 7) -> [RevisionOutlook.Day] {
+        _ = minuteTick
+        return RevisionOutlook.days(progress.data, cards: cards.map { ($0.key, $0.topic) }, today: today, days: days, clock: clock)
+    }
 
     func cards(for keys: [String]) -> [Card] {
         let byKey = Dictionary(cards.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
         return keys.compactMap { byKey[$0] }
     }
 
-    func target(for slot: StudySlot) -> SlotTarget {
-        progress.data.dayTargets[today]?.slots[slot.id] ?? SlotTarget()
-    }
-
-    func status(for slot: StudySlot) -> SlotStatus {
-        _ = minuteTick
-        return SessionPlanner.status(of: slot, on: today, data: progress.data, nowMinute: nowMinute)
-    }
-
-    func isDoneToday(_ key: String) -> Bool { progress.data.isDone(key, on: today) }
-
-    /// Keys of a session still to do today.
-    func remaining(_ slot: StudySlot) -> (new: [String], review: [String]) {
-        let t = target(for: slot)
-        if t.skipped || t.rolledOver { return ([], []) }
-        return (t.newKeys.filter { !isDoneToday($0) }, t.reviewKeys.filter { !isDoneToday($0) })
-    }
-
-    /// Today's remaining planned work across sessions.
-    var todayRemaining: (new: Int, review: Int) {
-        studySlots.reduce((0, 0)) { sum, slot in
-            let r = remaining(slot)
-            return (sum.0 + r.new.count, sum.1 + r.review.count)
+    /// How many of these cards are due because of a 📅 fixed checkpoint vs a 🧠 FSRS date.
+    func split(_ cards: [Card]) -> (fixed: Int, fsrs: Int) {
+        cards.reduce((0, 0)) { sum, card in
+            Scheduler.nextMethod(of: review(for: card), clock: clock) == .fixed ? (sum.0 + 1, sum.1) : (sum.0, sum.1 + 1)
         }
     }
 
-    func forecast(days: Int = 14) -> Forecast {
-        _ = minuteTick
-        return SessionPlanner.forecast(progress.data, cards: planScope, today: today, nowMinute: nowMinute, days: days, clock: clock)
-    }
-
-    /// Locks today's targets, carries over missed days and ended sessions.
-    func ensureToday() {
-        guard !cards.isEmpty else { return }
-        var data = progress.data
-        SessionPlanner.catchUp(&data, today: today, clock: clock)
-        SessionPlanner.lockDay(&data, cards: planScope, day: today, clock: clock)
-        SessionPlanner.rollOver(&data, day: today, nowMinute: nowMinute, clock: clock)
-        if data != progress.data {
-            progress.data = data
-            onPlanChanged?()
+    /// Cards due on `day` (overdue ones included for today).
+    func cardsDue(on day: String) -> [Card] {
+        let t = today
+        return cards.filter { c in
+            guard let r = review(for: c) else { return false }
+            return day == t ? r.dueDay <= day : r.dueDay == day
         }
     }
 
-    /// Re-plans today's sessions (after changing session times or categories). Carried work is kept.
-    func rebuildToday() {
-        guard var dt = progress.data.dayTargets[today] else { ensureToday(); return }
-        let carried = dt.slots.values.flatMap(\.carriedKeys).filter { !isDoneToday($0) }
-        dt.carryInNew += carried.filter { progress.data.cards[$0] == nil }
-        dt.carryInReview += carried.filter { progress.data.cards[$0] != nil }
-        dt.slots = [:]
-        dt.locked = false
-        progress.data.dayTargets[today] = dt
-        ensureToday()
-    }
-
-    /// "Busy today": move the rest of today's targets to tomorrow.
-    func busyToday() {
-        var data = progress.data
-        SessionPlanner.skipRest(&data, day: today, clock: clock)
-        progress.data = data
+    /// Put every studied card back on the checkpoints from today (Settings button).
+    func restartCheckpointsToday() {
+        Scheduler.restartAll(&progress.data, today: today)
+        progress.data.checkpointsRestartedDay = today
         onPlanChanged?()
     }
+
+    /// Revise every due card, mixed across categories.
+    func startRevision() { beginPractice(dueCards.shuffled()) }
+
+    /// Revise only one category's due cards.
+    func startRevision(category: String) { beginPractice(dueCards.filter { $0.topic == category }.shuffled()) }
+
+    // Tasks
+
+    func tasks(on day: String) -> [PlanTask] { progress.data.tasks[day] ?? [] }
+
+    /// Unfinished tasks from earlier days, newest first.
+    var overdueTasks: [(day: String, task: PlanTask)] {
+        let t = today
+        return progress.data.tasks.filter { $0.key < t }.sorted { $0.key > $1.key }
+            .flatMap { day, list in list.filter { !$0.done }.map { (day, $0) } }
+    }
+
+    func addTask(_ text: String, on day: String, link: TaskLink? = nil) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        progress.data.tasks[day, default: []].append(
+            PlanTask(text: trimmed, link: link ?? PlanText.link(for: trimmed, categories: categories)))
+        onPlanChanged?()
+    }
+
+    func updateTask(_ id: String, on day: String, _ change: (inout PlanTask) -> Void) {
+        guard var list = progress.data.tasks[day], let i = list.firstIndex(where: { $0.id == id }) else { return }
+        change(&list[i])
+        progress.data.tasks[day] = list
+        onPlanChanged?()
+    }
+
+    func deleteTask(_ id: String, on day: String) {
+        progress.data.tasks[day]?.removeAll { $0.id == id }
+        if progress.data.tasks[day]?.isEmpty == true { progress.data.tasks[day] = nil }
+        onPlanChanged?()
+    }
+
+    func moveTask(_ id: String, from day: String, to newDay: String) {
+        guard day != newDay, let task = progress.data.tasks[day]?.first(where: { $0.id == id }) else { return }
+        deleteTask(id, on: day)
+        progress.data.tasks[newDay, default: []].append(task)
+        onPlanChanged?()
+    }
+
+    /// Drag and drop within a day: put `id` where `target` is.
+    func moveTask(_ id: String, onto target: String, on day: String) {
+        guard var list = progress.data.tasks[day],
+              let from = list.firstIndex(where: { $0.id == id }),
+              let to = list.firstIndex(where: { $0.id == target }), from != to else { return }
+        let item = list.remove(at: from)
+        list.insert(item, at: to)
+        progress.data.tasks[day] = list
+    }
+
+    /// Adds a pasted plan (e.g. "[Nov 25 ]" headers with tasks under them) to your days.
+    @discardableResult
+    func importPlan(_ text: String) -> PlanText.Parsed {
+        let parsed = PlanText.parse(text, today: today, categories: categories, clock: clock)
+        for (day, list) in parsed.tasksByDay {
+            let existing = Set((progress.data.tasks[day] ?? []).map { $0.text.lowercased() })
+            progress.data.tasks[day, default: []].append(contentsOf: list.filter { !existing.contains($0.text.lowercased()) })
+        }
+        onPlanChanged?()
+        return parsed
+    }
+
+    /// The questions a task's ▶ Start opens: a category, or the questions under one of its dividers.
+    func cards(for link: TaskLink) -> [Card] {
+        guard let section = link.section else { return cardsInSheet(of: link.category) }
+        var inSection = false
+        var out: [Card] = []
+        for item in listItems(of: link.category) {
+            switch item {
+            case .divider(let d):
+                if inSection { return out }
+                inSection = d.title.caseInsensitiveCompare(section) == .orderedSame
+            case .card(let c):
+                if inSection { out.append(c) }
+            }
+        }
+        return out
+    }
+
+    func startTask(_ task: PlanTask) {
+        guard let link = task.link else { return }
+        beginStudy(cards(for: link), newCards: false)
+    }
+
+    // Reviews
 
     /// Whether an answer to this card updates its FSRS schedule: new cards, due cards, and
     /// cards already reviewed today (same-day retries). Other cards are "practice only".
@@ -334,40 +381,20 @@ final class StudySession {
     private func recordReview(_ card: Card, rating: Rating) {
         guard isScheduled(card) else { return }
         let key = card.key
-        progress.data.cards[key] = FSRS.review(
+        progress.data.cards[key] = Scheduler.review(
             progress.data.cards[key], rating: rating, topic: card.topic, today: today,
-            retention: progress.data.desiredRetention, clock: clock)
-        markDone(card)
-    }
-
-    private func markDone(_ card: Card) {
-        progress.data.markDone(card.key, on: today)
+            retention: progress.data.desiredRetention, useCheckpoints: progress.data.useCheckpoints, clock: clock)
         onPlanChanged?()
     }
 
     func openPlan() {
         reset()
-        ensureToday()
         mode = .plan
     }
 
-    /// Starts a session: new cards are studied first (then self-tested), reviews are practised mixed.
-    func startSession(_ slot: StudySlot) {
-        let r = remaining(slot)
-        let newOnes = cards(for: r.new)
-        if !newOnes.isEmpty {
-            beginStudy(newOnes, newCards: true)
-        } else {
-            beginPractice(cards(for: r.review).shuffled())
-        }
-    }
-
-    func startSessionReviews(_ slot: StudySlot) { beginPractice(cards(for: remaining(slot).review).shuffled()) }
-
     func startQuickRecall() { beginPractice(todaysNewCards.shuffled()) }
 
-    /// From the end of a study deck: practise the same cards. New cards count as done only
-    /// once rated here, which also gives them their first FSRS schedule.
+    /// From the end of a study deck: practise the same cards (new ones get their first FSRS rating).
     func testStudiedCards() {
         let rest = deck.filter { !alreadyStudied.contains($0.id) }
         if rest.isEmpty { reset(); return }
@@ -380,19 +407,17 @@ final class StudySession {
     /// Whether unsetting "Studied" would drop real practice history (more than the one Studied mark).
     func hasPracticeHistory(_ card: Card) -> Bool { (review(for: card)?.reviews ?? 0) > 1 }
 
-    /// "Studied" toggle. Set: an FSRS Good review today, so the first revision is in about 3 days,
-    /// and the card counts as done for today's session. Unset: the card becomes new again.
+    /// "Studied" toggle. Set: the card enters your schedule — checkpoints on days 1, 3, 7, 14 and
+    /// FSRS, both from today (or FSRS alone if checkpoints are off).
+    /// Unset: the card becomes new again.
     func toggleStudied(_ card: Card) {
-        let day = today
         if isStudied(card) {
             progress.data.cards[card.key] = nil
-            progress.data.dayDone[day]?.removeAll { $0 == card.key }
             alreadyStudied.remove(card.id)
         } else {
-            progress.data.cards[card.key] = FSRS.review(
-                nil, rating: .good, topic: card.topic, today: day,
-                retention: progress.data.desiredRetention, clock: clock)
-            markDone(card)
+            progress.data.cards[card.key] = Scheduler.review(
+                nil, rating: .good, topic: card.topic, today: today,
+                retention: progress.data.desiredRetention, useCheckpoints: progress.data.useCheckpoints, clock: clock)
             alreadyStudied.insert(card.id)
         }
         onPlanChanged?()

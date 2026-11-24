@@ -1,3 +1,4 @@
+import FlashCardsCore
 import AppKit
 import SwiftUI
 
@@ -15,6 +16,10 @@ enum Theme {
     static let subtle = dynamic(light: 0xF1EFE9, dark: 0x30312D)
     /// Primary dark button fill (stays dark-ish in both themes).
     static let inkButton = dynamic(light: 0x20211F, dark: 0x44463F)
+
+    /// 📅 Fixed checkpoints vs 🧠 FSRS.
+    static let fixed = dynamic(light: 0x2F6FB5, dark: 0x6FA8E8)
+    static let fsrs = dynamic(light: 0x7A4FB8, dark: 0xB08AE8)
 
     /// C program categories are shown in a code font.
     static func isCode(_ topic: String) -> Bool { topic.lowercased().contains("program") }
@@ -88,4 +93,63 @@ extension View {
         background(Theme.card, in: RoundedRectangle(cornerRadius: radius))
             .overlay(RoundedRectangle(cornerRadius: radius).stroke(Theme.border))
     }
+}
+
+/// Which method schedules a card: 📅 fixed checkpoints or 🧠 FSRS.
+/// 📅 Fixed checkpoint and 🧠 FSRS chips for a studied card. The method that sets the
+/// card's next date is solid; the other is faded.
+struct PhaseBadge: View {
+    let review: CardReview?
+    var compact = false
+
+    var body: some View {
+        if let review, let phase = Scheduler.phase(of: review) {
+            let next = Scheduler.nextMethod(of: review)
+            HStack(spacing: 4) {
+                if let fixed = fixedText(phase) {
+                    chip(fixed, Theme.fixed, active: next == .fixed)
+                }
+                chip(fsrsText(review, phase), Theme.fsrs, active: next == .fsrs || phase == .startsAtNextReview)
+            }
+            .help(helpText(review, phase))
+        }
+    }
+
+    private func chip(_ text: String, _ color: Color, active: Bool) -> some View {
+        Text(text)
+            .font(.system(size: compact ? 10 : 11, weight: .bold))
+            .foregroundStyle(color)
+            .padding(.vertical, 3).padding(.horizontal, 8)
+            .background(color.opacity(active ? 0.18 : 0.06), in: Capsule())
+            .overlay(Capsule().stroke(color.opacity(active ? 0.5 : 0), lineWidth: 1))
+            .opacity(active ? 1 : 0.6)
+            .fixedSize()
+    }
+
+    private func fixedText(_ phase: Scheduler.Phase) -> String? {
+        switch phase {
+        case .startsAtNextReview: return compact ? "📅 starts today" : "📅 Fixed · starts today"
+        case .checkpoint(let n, let day): return compact ? "📅 \(n)/4 · day \(day)" : "📅 Fixed \(n)/4 · day \(day)"
+        case .fsrs: return nil
+        }
+    }
+
+    private func fsrsText(_ r: CardReview, _ phase: Scheduler.Phase) -> String {
+        if phase == .startsAtNextReview { return compact ? "🧠 starts today" : "🧠 FSRS · starts today" }
+        let days = Int(r.stability.rounded())
+        return compact ? "🧠 ~\(days)d" : "🧠 FSRS · memory ~\(days)d"
+    }
+
+    private func helpText(_ r: CardReview, _ phase: Scheduler.Phase) -> String {
+        if phase == .startsAtNextReview { return "Revise today: its 1, 3, 7, 14-day checkpoints and FSRS both start then." }
+        var parts: [String] = []
+        if let cp = Scheduler.checkpointDue(of: r) { parts.append("📅 Next checkpoint: \(cp)") }
+        if let f = Scheduler.fsrsDue(of: r) { parts.append("🧠 FSRS date: \(f)") }
+        parts.append("Comes back on whichever is first.")
+        return parts.joined(separator: "\n")
+    }
+}
+
+extension Scheduler.Phase {
+    var isFixed: Bool { if case .fsrs = self { return false } else { return true } }
 }

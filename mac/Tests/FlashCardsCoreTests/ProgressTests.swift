@@ -46,7 +46,7 @@ final class ProgressStoreTests: XCTestCase {
         store.data.activeCard = ActiveCardTimer(key: "abc", day: "2026-01-01", elapsed: 42)
         store.data.cards["abc"] = CardReview(dueDay: "2026-01-04", lastReviewed: "2026-01-01", reviews: 2, lapses: 0, topic: "C QA",
                                              stability: 3.2, difficulty: 5.3, introducedDay: "2026-01-01", lastRating: 3)
-        store.data.plan = StudyPlan(categories: ["C QA"])
+        store.data.tasks["2026-01-02"] = [PlanTask(text: "Sorting", link: TaskLink(category: "C Programs", section: "Sorting"))]
         store.data.categoryMinutes["C QA"] = 7
         store.saveNow()
         store.saveNow() // second save creates the backup
@@ -60,11 +60,11 @@ final class ProgressStoreTests: XCTestCase {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: folder) }
         let store = ProgressStore(folder: folder)
-        store.data.notifyLeadMinutes = 25
+        store.data.reminderMinute = 25
         store.saveNow()
         store.saveNow()
         try Data("not json".utf8).write(to: store.fileURL)
-        XCTAssertEqual(ProgressStore(folder: folder).data.notifyLeadMinutes, 25)
+        XCTAssertEqual(ProgressStore(folder: folder).data.reminderMinute, 25)
     }
 
     func testCardKeyIsStableAcrossRowsAndWhitespace() {

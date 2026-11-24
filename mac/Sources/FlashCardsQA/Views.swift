@@ -209,12 +209,13 @@ struct StartView: View {
     var body: some View {
         @Bindable var session = session
         VStack(alignment: .leading, spacing: 18) {
-            let todayLeft = session.todayRemaining
-            if !session.cards.isEmpty && (todayLeft.new + todayLeft.review > 0) {
+            let dueCount = session.dueCards.count
+            let todayTasks = session.tasks(on: session.today).filter { !$0.done }.count
+            if !session.cards.isEmpty && (dueCount + todayTasks > 0) {
                 Button { session.openPlan() } label: {
                     HStack(spacing: 8) {
                         Text("📌")
-                        Text("Today's plan: \(todayLeft.new) new to learn · \(todayLeft.review) to revise")
+                        Text("Today: \(dueCount) to revise · \(todayTasks) task\(todayTasks == 1 ? "" : "s") in your plan")
                             .font(.system(size: 13, weight: .semibold))
                         Spacer()
                         Text("Open Study Plan →").font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.accent)
@@ -330,17 +331,21 @@ private struct ProgressBar: View {
 }
 
 private struct CardView: View {
+    @Environment(StudySession.self) private var session
     var card: Card
     var showAnswer: Bool
     var centered: Bool
 
     var body: some View {
         VStack(alignment: centered ? .center : .leading, spacing: 0) {
-            Text(card.topic)
-                .font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.accent)
-                .padding(.vertical, 5).padding(.horizontal, 11)
-                .background(Theme.accentSoft, in: Capsule())
-                .padding(.bottom, 18)
+            HStack(spacing: 6) {
+                Text(card.topic)
+                    .font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.accent)
+                    .padding(.vertical, 5).padding(.horizontal, 11)
+                    .background(Theme.accentSoft, in: Capsule())
+                PhaseBadge(review: session.review(for: card))
+            }
+            .padding(.bottom, 18)
             Text(card.question)
                 .font(Theme.questionFont(card.topic)).lineSpacing(5)
                 .multilineTextAlignment(centered ? .center : .leading)
@@ -408,7 +413,7 @@ struct StudyView: View {
                 }
                 .padding(.top, 17)
                 if session.studyingNewCards {
-                    Text("Press Studied (S) when you've learned a card — FSRS brings it back for revision. Or test yourself at the end.")
+                    Text("Press Studied (S) when you've learned a card — it comes back on days 1, 3, 7 and 14, then FSRS takes over. Or test yourself at the end.")
                         .font(.system(size: 11)).foregroundStyle(Theme.muted).padding(.top, 12)
                 }
             }
@@ -434,8 +439,8 @@ struct StudiedToggle: View {
         }
         .buttonStyle(FilledButtonStyle(color: on ? Theme.accent : Theme.subtle, foreground: on ? .white : Theme.ink))
         .keyboardShortcut("s", modifiers: [])
-        .help(on ? "Studied — FSRS will bring it back for revision. Click to unmark (S)"
-                 : "Mark as studied — FSRS schedules the first revision in about 3 days (S)")
+        .help(on ? "Studied — it's in your revision schedule. Click to unmark (S)"
+                 : "Mark as studied — revised again tomorrow, then on days 3, 7 and 14, then by FSRS (S)")
         .confirmationDialog("Unmark “Studied”?", isPresented: $confirmUnset) {
             Button("Unmark and reset", role: .destructive) { session.toggleStudied(card) }
             Button("Cancel", role: .cancel) {}
@@ -644,23 +649,19 @@ struct SettingsView: View {
     @Environment(StudySession.self) private var session
     @Environment(ProgressStore.self) private var store
 
-    private func slotTime(_ index: Int, _ path: WritableKeyPath<StudySlot, Int>) -> Binding<Date> {
+    @State private var confirmRestart = false
+
+    private var reminderTime: Binding<Date> {
         Binding(
             get: {
-                let minute = store.data.slots[index][keyPath: path]
-                return Calendar.current.date(bySettingHour: minute / 60, minute: minute % 60, second: 0, of: Date()) ?? Date()
+                let m = store.data.reminderMinute
+                return Calendar.current.date(bySettingHour: m / 60, minute: m % 60, second: 0, of: Date()) ?? Date()
             },
             set: { date in
                 let c = Calendar.current.dateComponents([.hour, .minute], from: date)
-                store.data.slots[index][keyPath: path] = (c.hour ?? 0) * 60 + (c.minute ?? 0)
+                store.data.reminderMinute = (c.hour ?? 0) * 60 + (c.minute ?? 0)
                 session.onPlanChanged?()
             })
-    }
-
-    private func slotBinding<V>(_ index: Int, _ path: WritableKeyPath<StudySlot, V>) -> Binding<V> {
-        Binding(
-            get: { store.data.slots[index][keyPath: path] },
-            set: { store.data.slots[index][keyPath: path] = $0; session.onPlanChanged?() })
     }
 
     private func minutes(_ category: String) -> Binding<Int> {
@@ -683,49 +684,21 @@ struct SettingsView: View {
                         .disabled(folder.isEmpty)
                 }
             } footer: {
-                Text("The app looks for InterviewPrepare.xlsx (or Interview Prepare.xlsx) in this folder. It only reads the workbook and never writes to it.")
+                Text("The app looks for InterviewPrepare.xlsx (or Interview Prepare.xlsx) in this folder. It writes to it only when you add, edit, reorder or delete questions, and keeps backups.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
 
             Section {
-                ForEach(store.data.slots.indices, id: \.self) { i in
-                    let slot = store.data.slots[i]
-                    HStack(spacing: 10) {
-                        Toggle("", isOn: slotBinding(i, \.enabled)).labelsHidden()
-                        Text("\(slot.emoji) \(slot.name)").frame(width: 110, alignment: .leading)
-                        DatePicker("", selection: slotTime(i, \.start), displayedComponents: .hourAndMinute).labelsHidden()
-                        Text("–")
-                        DatePicker("", selection: slotTime(i, \.end), displayedComponents: .hourAndMinute).labelsHidden()
-                        Picker("", selection: slotBinding(i, \.focus)) {
-                            ForEach(SlotFocus.allCases, id: \.self) { Text($0.label).tag($0) }
-                        }
-                        .labelsHidden()
-                        .frame(width: 190)
-                    }
-                    .disabled(false)
-                    .opacity(slot.enabled ? 1 : 0.5)
-                }
-                HStack {
-                    Button("Rebuild today's targets") { session.rebuildToday() }
-                    Button("Reset to defaults") {
-                        store.data.slots = StudySlot.defaults
-                        session.onPlanChanged?()
-                    }
-                }
+                Toggle("Morning revision reminder", isOn: Binding(
+                    get: { store.data.reminderOn },
+                    set: { store.data.reminderOn = $0; session.onPlanChanged?() }))
+                DatePicker("Time", selection: reminderTime, displayedComponents: .hourAndMinute)
+                    .disabled(!store.data.reminderOn)
             } header: {
-                Text("Daily sessions")
+                Text("Reminder")
             } footer: {
-                Text("Targets are planned when the day starts. After changing sessions, use Rebuild today's targets to re-plan today.")
+                Text("Each morning: how many cards to revise, then your first planned tasks. Allow notifications for FlashCardsQA in System Settings › Notifications.")
                     .font(.footnote).foregroundStyle(.secondary)
-            }
-
-            Section {
-                Stepper("Remind me \(store.data.notifyLeadMinutes) min before each session",
-                        value: Binding(get: { store.data.notifyLeadMinutes },
-                                       set: { store.data.notifyLeadMinutes = $0; session.onPlanChanged?() }),
-                        in: 0...60, step: 5)
-            } header: {
-                Text("Reminders")
             }
 
             Section {
@@ -735,6 +708,11 @@ struct SettingsView: View {
                                           set: { store.data.desiredRetention = ($0 * 100).rounded() / 100; session.onPlanChanged?() }),
                            in: 0.80...0.97, step: 0.01)
                 }
+                Toggle("Fixed checkpoints alongside FSRS: also revise 1, 3, 7 and 14 days after studying", isOn: Binding(
+                    get: { store.data.useCheckpoints },
+                    set: { store.data.useCheckpoints = $0; session.onPlanChanged?() }))
+                Button("Restart all studied cards on the checkpoints from today…") { confirmRestart = true }
+                    .disabled(!store.data.useCheckpoints)
             } header: {
                 Text("Memory (FSRS)")
             } footer: {
@@ -772,6 +750,12 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .frame(width: 700, height: 640)
+        .confirmationDialog("Restart all studied cards on the checkpoints?", isPresented: $confirmRestart) {
+            Button("Restart from today", role: .destructive) { session.restartCheckpointsToday() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Every studied card becomes due today, then follows days 1, 3, 7 and 14 again before FSRS takes over. Their FSRS history starts fresh.")
+        }
         .padding(.vertical, 8)
     }
 

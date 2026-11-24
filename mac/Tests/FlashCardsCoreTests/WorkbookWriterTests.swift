@@ -262,21 +262,16 @@ final class WorkbookWriterTests: XCTestCase {
 }
 
 final class RenameCardTests: XCTestCase {
-    func testRenameMovesHistoryAndTargets() {
+    func testRenameMovesHistory() {
         var d = ProgressData()
         d.cards["old"] = CardReview(dueDay: "2026-01-05", lastReviewed: "2026-01-01", reviews: 2, lapses: 0, topic: "T",
                                     stability: 4, difficulty: 5)
         d.cardSeconds["old"] = 90
-        d.dayDone["2026-01-01"] = ["old", "x"]
-        var dt = DayTargets()
-        dt.slots["morning"] = SlotTarget(newKeys: ["a"], reviewKeys: ["old"], carriedKeys: ["old"])
-        d.dayTargets["2026-01-05"] = dt
+        d.activeCard = ActiveCardTimer(key: "old", day: "2026-01-01", elapsed: 12)
         d.renameCard(from: "old", to: "new")
         XCTAssertNil(d.cards["old"])
         XCTAssertEqual(d.cards["new"]?.stability, 4)
         XCTAssertEqual(d.cardSeconds["new"], 90)
-        XCTAssertEqual(d.dayDone["2026-01-01"], ["new", "x"])
-        XCTAssertEqual(d.dayTargets["2026-01-05"]?.slots["morning"]?.reviewKeys, ["new"])
-        XCTAssertEqual(d.dayTargets["2026-01-05"]?.slots["morning"]?.carriedKeys, ["new"])
+        XCTAssertEqual(d.activeCard?.key, "new")
     }
 }

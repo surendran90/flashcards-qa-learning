@@ -4,7 +4,7 @@ Turn your interview Q&A workbook (Excel, on OneDrive) into a daily study system.
 
 There are two ways to use it:
 
-- **Mac app (recommended):** a native macOS app with the study plan, the FSRS memory algorithm, card timers, session reminders, and question editing that saves to Excel.
+- **Mac app (recommended):** a native macOS app with a daily plan (FSRS revision first, then your own tasks), card timers, a morning reminder, and question editing that saves to Excel.
 - **Web app:** the original React app that runs in your browser. It's simpler: study and practice only.
 
 ![FlashCards QA Mac app — categories](docs/screenshots/mac-home.jpg)
@@ -19,8 +19,8 @@ There are two ways to use it:
 | Study mode (question + answer) and Practice mode (reveal, then rate) | ✅ | ✅ |
 | Category filter, question range, shuffle, retry missed | ✅ | ✅ |
 | **FSRS-5 spaced repetition** with Again / Hard / Good / Easy ratings | ✅ | — |
-| **Study plan**: daily sessions, carry-over of missed work, finish-date estimate, 14-day outlook | ✅ | — |
-| **Reminders** before each study session | ✅ | — |
+| **Study plan**: today's FSRS revision first, then your own day-by-day task list (paste a written plan) | ✅ | — |
+| **Morning reminder**: cards to revise today + your first tasks | ✅ | — |
 | **Card timer**: starts on each card; 5/10/15/20/30 min (20 for C Programs and Module Knowledge by default); time logged | ✅ | — |
 | **Edit questions**: add, edit (with bold, bullets, numbering), reorder, delete, section dividers, new categories; saved straight to Excel with backups | ✅ | — |
 | Code font for C Programs, light and dark mode, keyboard shortcuts | ✅ | — |
@@ -42,7 +42,7 @@ cd mac
 
 This builds the app and copies **FlashCards QA** into `/Applications`. Open it from Launchpad or Spotlight. It loads your workbook straight away; you don't need Terminal or a browser after this.
 
-- The first time you open the Study Plan, macOS asks to allow notifications. Allow them to get reminders before each session.
+- The first time you open the Study Plan, macOS asks to allow notifications. Allow them to get a morning reminder of what to revise.
 - If your workbook is somewhere else, change the folder in **Settings (⌘,) › Workbook folder**.
 - To update the app after pulling new code, run `./build-app.sh --install` again. Your progress is kept.
 - The build is signed only for your own Mac (it isn't notarized for sharing).
@@ -65,17 +65,37 @@ This starts a small local service that reads the OneDrive workbook, plus the Rea
 
 ## Use cases
 
-- **Study daily while job hunting:** set your free time as morning, afternoon and evening sessions. The plan gives each session a target, moves missed work to the next session, and shows when you'll have learned everything.
+- **Study daily while job hunting:** every morning, clear the cards FSRS says are due, then work through the tasks you wrote for the day, such as "Sorting + linked list + binary search" or "Apply in Coimbatore".
 - **Remember answers until the interview:** practise with honest ratings (Again / Hard / Good / Easy). FSRS brings each card back just before you'd forget it, so time goes to weak cards, not ones you already know.
 - **Mark what you've learned:** press **Studied** on a card in Study mode. FSRS then schedules it for revision (first in about 3 days); press it again to unmark it.
-- **Handle interview or busy days:** **Busy today** moves the day's work to tomorrow and updates the finish date.
+- **Handle interview or busy days:** do the short revision, then move the day's tasks to tomorrow from each task's ⋯ menu.
 - **Practise one topic:** pick a category such as `Embedded QA` or `C Programs`, optionally a range such as questions 10–20, then Study or Practice.
 - **Write code from memory:** C Programs cards use a code font with a 20-minute time box; write the program first, then reveal and compare.
 - **Track your effort:** see studying and revising time per day, per category and per card, and which cards are slowest.
 - **Keep the question bank up to date without opening Excel:** add, edit, reorder or delete questions, group them under section dividers, or create a new category, all from the app. Changes save to the workbook and the plan updates straight away.
 - **Use Excel when you prefer:** edit the workbook in Excel, then select **Refresh**.
 
-## Study algorithm (FSRS)
+## Study algorithm (fixed checkpoints + FSRS)
+
+The Mac app runs two methods side by side. Both start the day you study a card:
+
+1. **📅 Fixed checkpoints:** the card is revised **1, 3, 7 and 14 days later**, whatever you rate it. That makes sure every new card gets the same early repetition. Rating a card **Again** restarts its checkpoints from that day. A late review waits at least a day before the next checkpoint.
+2. **🧠 FSRS:** from the first study, FSRS also picks a date from how well you remember the card, and every review updates it.
+
+The card comes back on **whichever date is first**. If FSRS brings a card back before its next checkpoint, that review doesn't use up the checkpoint. After the day-14 checkpoint only FSRS is left.
+
+**Fresh start for cards studied so far:** when the checkpoints were introduced, every card you'd already studied became due on that day. Revising it then starts its 1, 3, 7, 14-day checkpoints from that day, with a fresh FSRS history. Its review count and first-study date are kept. You can do the same again at any time with **Settings › Memory › Restart all studied cards on the checkpoints from today…**. You can also turn checkpoints off there to use FSRS alone.
+
+**Telling the two methods apart:** every studied card shows both badges, on the card itself in Study and Practice and in the Study Plan's card lists. The badge for the method that sets the next date is solid, and the other is faded. Hover over the badges to see both dates.
+
+| Badge | Meaning |
+|---|---|
+| 📅 **Fixed · starts today** / 🧠 **FSRS · starts today** | Revise today to start both methods |
+| 📅 **Fixed 2/4 · day 3** (blue) | Next fixed checkpoint; the rating doesn't change its date |
+| 🧠 **FSRS · memory ~16d** (purple) | FSRS's own schedule. It's the only badge left after day 14 |
+
+The Study Plan headline and the "Coming up" days split each count into cards due by a 📅 fixed checkpoint and by 🧠 FSRS.
+
 
 The Mac app schedules reviews with **FSRS-5** (Free Spaced Repetition Scheduler), the algorithm Anki has used by default since 2023.
 
@@ -126,13 +146,13 @@ It's built on long-standing memory research: the **spacing effect** (reviews spr
 ### Main page
 
 - Pick **All** or a category, then **Study** or **Start Practice**. You can set an inclusive **From/To** range and turn **Shuffle** on or off.
-- **📌 Today's plan** shows what's left today and links to the Study Plan.
+- **📌 Today** shows how many cards are due for revision and how many tasks are left in today's plan, and links to the Study Plan.
 - **⌘R** refreshes the workbook, **⌘O** imports another `.xlsx`, and **⌘L** opens the Study Plan.
 
 ### Study and Practice
 
 - **Study:** shows the question and answer together. Use ← / → to move. The last card offers **✍️ Test yourself**, which practises the cards you just read.
-- **Studied** (key **S**): a toggle on every Study card. When it's set (filled green ✓ Studied), the card counts as done today and FSRS schedules its first revision in about 3 days, as if you'd rated it Good. Press it again to unmark it: the card becomes new again. If the card already has practice history, you're asked to confirm first.
+- **Studied** (key **S**): a toggle on every Study card. When it's set (filled green ✓ Studied), the card joins your schedule: it's revised on days 1, 3, 7 and 14, and FSRS schedules it from the same day (whichever date is first). Press it again to unmark it: the card becomes new again. If the card already has practice history, you're asked to confirm first.
 - **✏️ Edit** (key **E**): edit the question and answer without leaving Study. The answer editor has **Bold** (⌘B), **bulleted list** and **numbered list** buttons, and saves to the workbook.
 - **Practice:**
   - **Space** reveals the answer, **1–4** rate it, **S** skips, **Esc** ends.
@@ -150,29 +170,39 @@ Every card in Study and Practice has a timer in its corner. It **starts by itsel
 
 ### Study plan
 
-![Study plan with FSRS and daily sessions](docs/screenshots/mac-study-plan.jpg)
+Open it with **🗓 Study Plan** or **⌘L**. It has two parts, in the order you work through them.
 
-The plan has no deadline. It sizes each day to your sessions and estimates when you'll finish.
+**1 · Revise first.** All your FSRS revision is in this one section.
+- **Headline:** how many cards FSRS wants you to revise today (overdue ones included) and the estimated time. **🔁 Start revision** practises all of them, mixed across categories. Once they're done, it shows "✅ Revision done".
+- **Coming up:** how many cards are due on each of the next 7 days, so you can see busy days ahead.
+- **By category:** a table with, for each category, cards studied (in your FSRS schedule) out of the total, due today, due in the next 7 days, mastered and weak, plus a totals row. Its "Due today" numbers add up to the headline.
+  - **▶ Revise (n)** on a row revises just that category's due cards.
+  - Selecting a category lists each studied card with its last rating, how long FSRS expects you to remember it, and when it comes back.
 
-| Session (default) | Time | Focus |
-|---|---|---|
-| 🌅 Morning | 9:30–12:00 | Learn new cards: read them, then **Test yourself** |
-| 💼 Job search | 12:00–14:30 | Applications and lunch (not counted as study) |
-| ☀️ Afternoon | 14:30–16:30 | Review due cards |
-| 🌙 Evening | 19:30–20:30 | Review due cards the afternoon didn't fit |
+**2 · Your plan.** This is your own task list for each day. Use ◀ ▶ to move between days.
+- **Add a task:** type it and press Return. Examples: "Daily two modules", "All sorting in C Programs + linked list + binary search", "Apply in Coimbatore".
+- **Edit:** double-click a task. Tick it off when it's done, and drag ≡ to reorder.
+- **▶ Start:** a task that names a category (such as "Resume QA") is linked to it automatically and gets a **▶ Start** button that opens those questions in Study mode. Use the 🔗 menu to link a task to a category or to one of its section dividers, or to remove the link.
+- **⋯ menu:** move a task to tomorrow or today, or delete it.
+- **Unfinished from earlier:** tasks you didn't finish on earlier days appear at the top of Today, with **→ Today** or **Move all to today**.
+- **📋 Paste plan…:** paste a written plan like this one. Each date line starts a day, and the lines under it become that day's tasks:
 
-- **Targets:**
-  - Each session gets a target when the day starts, for example "Learn 8 new: C Programs ×2, C QA ×6 · ~70 min".
-  - New cards rotate across categories.
-  - Time estimates use your card time boxes, then your real average once a category has 10 timed cards.
-- **Carry-over:** when a session ends with work left, the rest moves to the next session (or to tomorrow), marked **↪ carried**. **Busy today** moves everything to tomorrow.
-- **Finish estimate:** **All cards learned by** and **Mastered by** dates. If you fall behind, the page shows how many days the date has slipped.
-- **Progress:** overall Learned and Mastered bars, a New / Learning / Mastered bar for each category, and the weak-card count.
-- **Next 14 days:** new and review counts per session, the estimated time, and carried work.
-- **Reminders:** a notification 10 minutes before each session (you can change this) says what to cover.
-- **Study time:** totals for today, the last 7 days and all time; a 14-day chart; the average time per card; and your slowest cards.
+  ```text
+  [Nov 25 ]
+  Revise as per algo
+  Daily two modules
+  Embedded C program (Add new 30)
+  Apply in Coimbatore
 
-Session times, focus, the reminder lead time, the time per category and the target recall are all in **Settings (⌘,)**.
+  [Nov 26 ]
+  All Sorting in C Program + linked list + Binary search
+  ```
+
+  "Revise as per algo" lines are skipped, because part 1 already handles revision. Dates such as `[Nov 25]`, `25 Nov`, `25th November` and `2026-11-25` are all understood.
+
+Further down you'll find how FSRS schedules your reviews and your study time (today, the last 7 days and all time; a 14-day chart; the average time per card; your slowest cards).
+
+**Morning reminder:** each morning (9:00 by default; change it in **Settings › Reminder**) a notification tells you how many cards to revise and lists your first tasks.
 
 ### Editing questions
 
@@ -241,7 +271,7 @@ The web app only reads the workbook and never writes to it.
 | Path | What's there |
 |---|---|
 | `src/`, `server.js`, `start.js` | React web app and its local workbook reader (Node) |
-| `mac/Sources/FlashCardsCore/` | Mac app logic: workbook reader and writer, FSRS, session planner, progress storage |
+| `mac/Sources/FlashCardsCore/` | Mac app logic: workbook reader and writer, FSRS, revision outlook, plan-text parser, progress storage |
 | `mac/Sources/FlashCardsQA/` | SwiftUI app: screens, card timer, reminders |
 | `mac/Tests/` | Unit tests for the parser, FSRS, planner, workbook writer and storage |
 

@@ -138,6 +138,13 @@ public struct CardReview: Codable, Equatable, Sendable {
     public var difficulty: Double
     /// Last FSRS rating (1 Again … 4 Easy).
     public var lastRating: Int?
+    /// Fixed checkpoints (revise 1, 3, 7, 14 days after studying): the day counting starts from,
+    /// and how many checkpoint reviews are done. nil = the card is scheduled by FSRS alone.
+    public var checkpointAnchor: String?
+    public var checkpointsDone: Int?
+    /// FSRS's own next date. It runs from the day you study, alongside the checkpoints;
+    /// `dueDay` is whichever of the two comes first. nil = same as `dueDay` (FSRS-only cards).
+    public var fsrsDueDay: String?
 
     public init(dueDay: String, lastReviewed: String, reviews: Int, lapses: Int, topic: String,
                 stability: Double, difficulty: Double, introducedDay: String? = nil, lastRating: Int? = nil) {
@@ -153,7 +160,8 @@ public struct CardReview: Codable, Equatable, Sendable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case dueDay, lastReviewed, reviews, lapses, topic, introducedDay, stability, difficulty, lastRating, step
+        case dueDay, lastReviewed, reviews, lapses, topic, introducedDay, stability, difficulty, lastRating, step,
+             checkpointAnchor, checkpointsDone, fsrsDueDay
     }
 
     /// Reviews saved before FSRS have a ladder `step` instead of stability/difficulty; convert them once.
@@ -166,6 +174,9 @@ public struct CardReview: Codable, Equatable, Sendable {
         topic = try c.decodeIfPresent(String.self, forKey: .topic) ?? ""
         introducedDay = try c.decodeIfPresent(String.self, forKey: .introducedDay)
         lastRating = try c.decodeIfPresent(Int.self, forKey: .lastRating)
+        checkpointAnchor = try c.decodeIfPresent(String.self, forKey: .checkpointAnchor)
+        checkpointsDone = try c.decodeIfPresent(Int.self, forKey: .checkpointsDone)
+        fsrsDueDay = try c.decodeIfPresent(String.self, forKey: .fsrsDueDay)
         if let s = try c.decodeIfPresent(Double.self, forKey: .stability),
            let d = try c.decodeIfPresent(Double.self, forKey: .difficulty) {
             stability = s
@@ -188,186 +199,100 @@ public struct CardReview: Codable, Equatable, Sendable {
         try c.encode(stability, forKey: .stability)
         try c.encode(difficulty, forKey: .difficulty)
         try c.encodeIfPresent(lastRating, forKey: .lastRating)
+        try c.encodeIfPresent(checkpointAnchor, forKey: .checkpointAnchor)
+        try c.encodeIfPresent(checkpointsDone, forKey: .checkpointsDone)
+        try c.encodeIfPresent(fsrsDueDay, forKey: .fsrsDueDay)
     }
 }
 
-// MARK: - Sessions
+// MARK: - Daily tasks
 
-public enum SlotFocus: String, Codable, Sendable, CaseIterable {
-    case learnNew, review, jobSearch
+/// What a task's ▶ Start opens: a whole category, or one section (divider) of it.
+public struct TaskLink: Codable, Equatable, Hashable, Sendable {
+    public var category: String
+    /// Divider title inside the category; nil means the whole category.
+    public var section: String?
 
-    public var label: String {
-        switch self {
-        case .learnNew: return "Learn new cards"
-        case .review: return "Review due cards"
-        case .jobSearch: return "Job search (not study)"
-        }
+    public init(category: String, section: String? = nil) {
+        self.category = category
+        self.section = section
     }
 
-    public var isStudy: Bool { self != .jobSearch }
-
-    /// The old "lightReview" focus is the same as review under FSRS.
-    public init(from decoder: Decoder) throws {
-        let raw = try decoder.singleValueContainer().decode(String.self)
-        self = SlotFocus(rawValue: raw) ?? .review
-    }
+    public var label: String { section.map { "\(category) › \($0)" } ?? category }
 }
 
-public struct StudySlot: Codable, Equatable, Identifiable, Sendable {
+/// A line in your own day plan, e.g. "Sorting + linked list + binary search" or "Apply in Coimbatore".
+public struct PlanTask: Codable, Equatable, Identifiable, Sendable {
     public var id: String
-    public var name: String
-    public var emoji: String
-    /// Minutes since midnight.
-    public var start: Int
-    public var end: Int
-    public var focus: SlotFocus
-    public var enabled: Bool
+    public var text: String
+    public var done: Bool
+    public var link: TaskLink?
 
-    public init(id: String, name: String, emoji: String, start: Int, end: Int, focus: SlotFocus, enabled: Bool = true) {
+    public init(id: String = UUID().uuidString, text: String, done: Bool = false, link: TaskLink? = nil) {
         self.id = id
-        self.name = name
-        self.emoji = emoji
-        self.start = start
-        self.end = end
-        self.focus = focus
-        self.enabled = enabled
-    }
-
-    public var minutes: Int { max(0, end - start) }
-
-    /// "9:30" style.
-    public static func timeLabel(_ minute: Int) -> String {
-        String(format: "%d:%02d", minute / 60, minute % 60)
-    }
-
-    public var timeRange: String { "\(Self.timeLabel(start))–\(Self.timeLabel(end))" }
-
-    /// Balanced ~5.5 h study day with a midday block for job search.
-    public static let defaults: [StudySlot] = [
-        StudySlot(id: "morning", name: "Morning", emoji: "🌅", start: 9 * 60 + 30, end: 12 * 60, focus: .learnNew),
-        StudySlot(id: "jobsearch", name: "Job search", emoji: "💼", start: 12 * 60, end: 14 * 60 + 30, focus: .jobSearch),
-        StudySlot(id: "afternoon", name: "Afternoon", emoji: "☀️", start: 14 * 60 + 30, end: 16 * 60 + 30, focus: .review),
-        StudySlot(id: "evening", name: "Evening", emoji: "🌙", start: 19 * 60 + 30, end: 20 * 60 + 30, focus: .review),
-    ]
-}
-
-/// What a session should cover on a given day.
-public struct SlotTarget: Codable, Equatable, Sendable {
-    public var newKeys: [String]
-    public var reviewKeys: [String]
-    /// Keys that came from an earlier session; shown as "carried".
-    public var carriedKeys: [String]
-    /// Set once the session's end has passed and leftovers moved on.
-    public var rolledOver: Bool
-    /// "Busy today": the session was skipped and its work moved to tomorrow.
-    public var skipped: Bool
-
-    public init(newKeys: [String] = [], reviewKeys: [String] = [], carriedKeys: [String] = [],
-                rolledOver: Bool = false, skipped: Bool = false) {
-        self.newKeys = newKeys
-        self.reviewKeys = reviewKeys
-        self.carriedKeys = carriedKeys
-        self.rolledOver = rolledOver
-        self.skipped = skipped
-    }
-
-    public var allKeys: [String] { newKeys + reviewKeys }
-}
-
-/// A day's locked session targets, plus work carried in before the day was locked.
-public struct DayTargets: Codable, Equatable, Sendable {
-    public var slots: [String: SlotTarget] = [:]
-    public var locked = false
-    public var carryInNew: [String] = []
-    public var carryInReview: [String] = []
-    /// "Learned by" estimate when the day was locked, to show if the finish date slipped.
-    public var learnedByAtLock: String?
-
-    public init() {}
-}
-
-public struct StudyPlan: Codable, Equatable, Sendable {
-    /// Empty means all categories.
-    public var categories: [String]
-
-    public init(categories: [String] = []) {
-        self.categories = categories
+        self.text = text
+        self.done = done
+        self.link = link
     }
 }
 
 // MARK: - Stored data
 
 public struct ProgressData: Codable, Equatable, Sendable {
-    public static let currentVersion = 2
+    public static let currentVersion = 3
 
     public var version = ProgressData.currentVersion
     public var timeLog = TimeLog()
     public var cards: [String: CardReview] = [:]
-    public var plan = StudyPlan()
-    public var slots: [StudySlot] = StudySlot.defaults
     public var categoryMinutes: [String: Int] = [:]
     public var timing: [String: TimingStats] = [:]
     public var cardSeconds: [String: Double] = [:]
     public var activeCard: ActiveCardTimer?
-    public var dayTargets: [String: DayTargets] = [:]
-    /// Keys studied or practised each day.
-    public var dayDone: [String: [String]] = [:]
-    public var notifyLeadMinutes = 10
+    /// Your own tasks per day ("yyyy-MM-dd"), in the order you arranged them.
+    public var tasks: [String: [PlanTask]] = [:]
+    /// Morning revision reminder.
+    public var reminderOn = true
+    /// Minutes after midnight (default 9:00).
+    public var reminderMinute = 9 * 60
     /// FSRS target recall probability at review time.
     public var desiredRetention = FSRS.defaultRetention
+    /// Revise newly studied cards on fixed days (1, 3, 7, 14) before FSRS takes over.
+    public var useCheckpoints = true
+    /// Day all previously studied cards were restarted on the checkpoints (one-time switch-over).
+    public var checkpointsRestartedDay: String?
 
     public init() {}
 
     enum CodingKeys: String, CodingKey {
-        case version, timeLog, cards, plan, slots, categoryMinutes, timing, cardSeconds, activeCard,
-             dayTargets, dayDone, notifyLeadMinutes, desiredRetention
+        case version, timeLog, cards, categoryMinutes, timing, cardSeconds, activeCard,
+             tasks, reminderOn, reminderMinute, desiredRetention, useCheckpoints, checkpointsRestartedDay
     }
 
-    /// Reads version 1 files too: missing fields get defaults; the old Pomodoro state is dropped.
+    /// Reads every earlier version: missing fields get defaults; data from removed features
+    /// (Pomodoro, study sessions and their targets) is dropped.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         let d = ProgressData()
         version = ProgressData.currentVersion
         timeLog = try c.decodeIfPresent(TimeLog.self, forKey: .timeLog) ?? d.timeLog
         cards = try c.decodeIfPresent([String: CardReview].self, forKey: .cards) ?? d.cards
-        plan = (try? c.decodeIfPresent(StudyPlan.self, forKey: .plan)) ?? d.plan
-        slots = try c.decodeIfPresent([StudySlot].self, forKey: .slots) ?? d.slots
         categoryMinutes = try c.decodeIfPresent([String: Int].self, forKey: .categoryMinutes) ?? d.categoryMinutes
         timing = try c.decodeIfPresent([String: TimingStats].self, forKey: .timing) ?? d.timing
         cardSeconds = try c.decodeIfPresent([String: Double].self, forKey: .cardSeconds) ?? d.cardSeconds
         activeCard = try c.decodeIfPresent(ActiveCardTimer.self, forKey: .activeCard)
-        dayTargets = try c.decodeIfPresent([String: DayTargets].self, forKey: .dayTargets) ?? d.dayTargets
-        dayDone = try c.decodeIfPresent([String: [String]].self, forKey: .dayDone) ?? d.dayDone
-        notifyLeadMinutes = try c.decodeIfPresent(Int.self, forKey: .notifyLeadMinutes) ?? d.notifyLeadMinutes
+        tasks = try c.decodeIfPresent([String: [PlanTask]].self, forKey: .tasks) ?? d.tasks
+        reminderOn = try c.decodeIfPresent(Bool.self, forKey: .reminderOn) ?? d.reminderOn
+        reminderMinute = try c.decodeIfPresent(Int.self, forKey: .reminderMinute) ?? d.reminderMinute
         desiredRetention = try c.decodeIfPresent(Double.self, forKey: .desiredRetention) ?? d.desiredRetention
-    }
-
-    public func isDone(_ key: String, on day: String) -> Bool {
-        dayDone[day]?.contains(key) ?? false
-    }
-
-    public mutating func markDone(_ key: String, on day: String) {
-        if !isDone(key, on: day) { dayDone[day, default: []].append(key) }
+        useCheckpoints = try c.decodeIfPresent(Bool.self, forKey: .useCheckpoints) ?? d.useCheckpoints
+        checkpointsRestartedDay = try c.decodeIfPresent(String.self, forKey: .checkpointsRestartedDay)
     }
 
     /// Moves everything stored under a card key to a new key (the question text was edited).
     public mutating func renameCard(from old: String, to new: String) {
         guard old != new else { return }
-        func swap(_ keys: [String]) -> [String] { keys.map { $0 == old ? new : $0 } }
         if let r = cards.removeValue(forKey: old) { cards[new] = r }
         if let s = cardSeconds.removeValue(forKey: old) { cardSeconds[new, default: 0] += s }
         if activeCard?.key == old { activeCard?.key = new }
-        for (day, keys) in dayDone where keys.contains(old) { dayDone[day] = swap(keys) }
-        for (day, var dt) in dayTargets {
-            for (id, var t) in dt.slots {
-                t.newKeys = swap(t.newKeys)
-                t.reviewKeys = swap(t.reviewKeys)
-                t.carriedKeys = swap(t.carriedKeys)
-                dt.slots[id] = t
-            }
-            dt.carryInNew = swap(dt.carryInNew)
-            dt.carryInReview = swap(dt.carryInReview)
-            dayTargets[day] = dt
-        }
     }
 }

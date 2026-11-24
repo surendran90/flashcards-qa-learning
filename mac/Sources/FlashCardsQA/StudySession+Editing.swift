@@ -141,7 +141,6 @@ extension StudySession {
         categories = loaded.result.loadedSheets
         if topic != "All" && !categories.contains(topic) { topic = "All" }
         rangeTo = String(max(1, count(for: topic)))
-        ensureToday()
         onPlanChanged?()
     }
 

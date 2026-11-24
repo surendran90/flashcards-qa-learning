@@ -10,8 +10,9 @@ final class AppModel {
     let store: ProgressStore
     let session: StudySession
     let timer: CardTimer
-    let notifier: SessionNotifier
+    let reminder: RevisionReminder
     private var heartbeat: Task<Void, Never>?
+    private var lastDay = ""
 
     private init() {
         // FLASHCARDSQA_PROGRESS_DIR lets testing use a scratch folder instead of your real progress.
@@ -20,17 +21,26 @@ final class AppModel {
         } else {
             store = ProgressStore()
         }
+        // One-time switch-over to "fixed checkpoints, then FSRS": everything studied so far is
+        // revised today and starts its checkpoints (and a fresh FSRS history) from today.
+        if store.data.useCheckpoints && store.data.checkpointsRestartedDay == nil {
+            let today = DayClock().key(Date())
+            Scheduler.restartAll(&store.data, today: today)
+            store.data.checkpointsRestartedDay = today
+            store.saveNow()
+        }
         session = StudySession(progress: store)
         timer = CardTimer(store: store, session: session)
-        notifier = SessionNotifier(session: session, store: store)
-        session.onPlanChanged = { [weak notifier] in notifier?.scheduleSoon() }
-        // Once a minute: refresh session status and carry over sessions that just ended.
+        reminder = RevisionReminder(session: session, store: store)
+        session.onPlanChanged = { [weak reminder] in reminder?.scheduleSoon() }
+        // Once a minute: refresh date-based views; after midnight, reschedule the reminders.
         heartbeat = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(60))
                 guard let self else { return }
+                let day = self.session.today
                 self.session.minuteTick += 1
-                self.session.ensureToday()
+                if day != self.lastDay { self.lastDay = day; self.reminder.scheduleSoon() }
             }
         }
     }
@@ -65,7 +75,7 @@ struct FlashCardsQAApp: App {
                 .environment(model.session)
                 .environment(model.timer)
                 .environment(model.store)
-                .environment(model.notifier)
+                .environment(model.reminder)
         }
         .defaultSize(width: 1060, height: 760)
         .commands {
@@ -90,7 +100,7 @@ struct FlashCardsQAApp: App {
                 .environment(model.session)
                 .environment(model.timer)
                 .environment(model.store)
-                .environment(model.notifier)
+                .environment(model.reminder)
         }
     }
 }

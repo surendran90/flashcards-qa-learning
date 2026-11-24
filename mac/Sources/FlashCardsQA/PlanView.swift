@@ -16,14 +16,14 @@ private func dayLabel(_ key: String, clock: DayClock, today: String) -> String {
 
 struct PlanView: View {
     @Environment(StudySession.self) private var session
-    @Environment(SessionNotifier.self) private var notifier
+    @Environment(RevisionReminder.self) private var reminder
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("🗓 Study Plan").font(.system(size: 22, weight: .bold))
-                    Text("Daily sessions sized to your time. Missed work moves to the next session.")
+                    Text("Revise first — FSRS decides what's due. Then work through your own plan for the day.")
                         .font(.system(size: 13)).foregroundStyle(Theme.muted)
                 }
                 Spacer()
@@ -31,22 +31,17 @@ struct PlanView: View {
                     .buttonStyle(LinkButtonStyle()).keyboardShortcut(.cancelAction)
             }
             if session.cards.isEmpty {
-                Text("Load a workbook first (Refresh or Import Excel) to build a plan.")
+                Text("Load a workbook first (Refresh or Import Excel) to see what's due.")
                     .foregroundStyle(Theme.muted).padding(24).frame(maxWidth: .infinity).panel()
             } else {
-                OverviewPanel()
-                AlgorithmPanel()
-                TodayPanel()
-                UpcomingPanel()
-                CategoryProgressPanel()
+                RevisionPanel()
             }
+            TasksPanel()
+            AlgorithmPanel()
             TimeStatsPanel()
             ResearchNote()
         }
-        .onAppear {
-            session.ensureToday()
-            notifier.requestPermission()
-        }
+        .onAppear { reminder.requestPermission() }
     }
 }
 
@@ -82,100 +77,361 @@ private struct ProgressLine: View {
     }
 }
 
-// MARK: - Overview: finish dates and overall progress
+// MARK: - 1. Revise first
 
-private struct OverviewPanel: View {
+private struct RevisionPanel: View {
     @Environment(StudySession.self) private var session
-    @Environment(ProgressStore.self) private var store
 
     var body: some View {
-        let cards = session.planCards
-        let learned = cards.filter { session.review(for: $0) != nil }.count
-        let mastered = cards.filter { SpacedRepetition.status(session.review(for: $0)) == .mastered }.count
-        let forecast = session.forecast(days: 1)
-        let atLock = store.data.dayTargets[session.today]?.learnedByAtLock
-
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(alignment: .top, spacing: 12) {
-                estimate("All cards learned by", forecast.learnedBy, slip: slip(from: atLock, to: forecast.learnedBy))
-                estimate("Mastered (3-week memory) by", forecast.masteredBy, slip: nil)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Study time per day").font(.system(size: 12)).foregroundStyle(Theme.muted)
-                    Text(Durations.short(Double(session.studySlots.reduce(0) { $0 + $1.minutes } * 60)))
-                        .font(.system(size: 22, weight: .heavy))
-                    Text("\(session.studySlots.count) sessions · change in Settings (⌘,)")
+        let due = session.dueCards
+        let revised = session.revisedTodayCount
+        let outlook = session.revisionOutlook(days: 7)
+        VStack(alignment: .leading, spacing: 14) {
+            SectionTitle(text: "1 · Revise first")
+            HStack(alignment: .center, spacing: 18) {
+                VStack(alignment: .leading, spacing: 2) {
+                    if due.isEmpty {
+                        Text(revised > 0 ? "✅ Revision done" : "Nothing due")
+                            .font(.system(size: 26, weight: .heavy)).foregroundStyle(Theme.accent)
+                        Text(revised > 0 ? "\(revised) card\(revised == 1 ? "" : "s") revised today — on to your plan."
+                                         : "No cards are due today. Go straight to your plan.")
+                            .font(.system(size: 12)).foregroundStyle(Theme.muted)
+                    } else {
+                        Text("\(due.count) to revise").font(.system(size: 30, weight: .heavy)).foregroundStyle(Theme.red)
+                        let split = session.split(due)
+                        HStack(spacing: 8) {
+                            if split.fixed > 0 { methodChip("📅 \(split.fixed) by fixed checkpoint", Theme.fixed) }
+                            if split.fsrs > 0 { methodChip("🧠 \(split.fsrs) by FSRS", Theme.fsrs) }
+                            Text("~\(Durations.short((outlook.first?.minutes ?? 0) * 60))"
+                                 + (revised > 0 ? " · \(revised) already revised today" : ""))
+                                .font(.system(size: 12)).foregroundStyle(Theme.muted)
+                        }
+                    }
+                }
+                Spacer()
+                if !due.isEmpty {
+                    Button("🔁 Start revision (\(due.count))") { session.startRevision() }
+                        .buttonStyle(FilledButtonStyle(color: Theme.red))
+                        .keyboardShortcut("r", modifiers: [.command, .shift])
+                }
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Coming up").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.muted)
+                HStack(spacing: 6) {
+                    ForEach(Array(outlook.enumerated()), id: \.offset) { i, day in
+                        VStack(spacing: 2) {
+                            Text(i == 0 ? "Today" : i == 1 ? "Tmrw" : shortDay(day.day))
+                                .font(.system(size: 10, weight: .semibold)).foregroundStyle(Theme.muted)
+                            Text("\(day.count)").font(.system(size: 15, weight: .heavy).monospacedDigit())
+                                .foregroundStyle(day.count == 0 ? Theme.muted : Theme.ink)
+                            let s = session.split(session.cardsDue(on: day.day))
+                            HStack(spacing: 4) {
+                                if s.fixed > 0 { Text("📅\(s.fixed)").foregroundStyle(Theme.fixed) }
+                                if s.fsrs > 0 { Text("🧠\(s.fsrs)").foregroundStyle(Theme.fsrs) }
+                            }
+                            .font(.system(size: 9, weight: .bold))
+                            .frame(height: 11)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 7)
+                        .background(Theme.bg, in: RoundedRectangle(cornerRadius: 8))
+                    }
+                }
+                HStack(spacing: 10) {
+                    methodChip("📅 Fixed: 1, 3, 7, 14 days after studying", Theme.fixed)
+                    methodChip("🧠 FSRS: from the day you study, by how well you remember", Theme.fsrs)
+                    Text("A card comes back on whichever date is first.")
                         .font(.system(size: 11)).foregroundStyle(Theme.muted)
                 }
-                .padding(.vertical, 10).padding(.horizontal, 14)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Theme.bg, in: RoundedRectangle(cornerRadius: 10))
             }
-            ProgressLine(label: "Learned", value: learned, total: cards.count, color: Theme.red.opacity(0.8))
-            ProgressLine(label: "Mastered", value: mastered, total: cards.count, color: Theme.accent)
-            CategoryPicker()
+            Divider().padding(.vertical, 2)
+            CategoryProgressPanel()
         }
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
         .panel()
     }
 
-    private func slip(from planned: String?, to now: String?) -> Int? {
-        guard let planned, let now else { return nil }
-        let d = session.clock.days(from: planned, to: now)
-        return d == 0 ? nil : d
+    private func methodChip(_ text: String, _ color: Color) -> some View {
+        Text(text).font(.system(size: 11, weight: .bold)).foregroundStyle(color)
+            .padding(.vertical, 3).padding(.horizontal, 8)
+            .background(color.opacity(0.14), in: Capsule())
+            .fixedSize()
     }
 
-    private func estimate(_ title: String, _ day: String?, slip: Int?) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(title).font(.system(size: 12)).foregroundStyle(Theme.muted)
-            Text(day.map { dayLabel($0, clock: session.clock, today: session.today) } ?? "—")
-                .font(.system(size: 22, weight: .heavy))
-            if let day {
-                let n = session.clock.days(from: session.today, to: day)
-                Text(n <= 0 ? "on track for today" : "in \(n) day\(n == 1 ? "" : "s")")
-                    .font(.system(size: 11)).foregroundStyle(Theme.muted)
-            } else {
-                Text("add a learning session in Settings").font(.system(size: 11)).foregroundStyle(Theme.muted)
-            }
-            if let slip {
-                Text(slip > 0 ? "⚠︎ \(slip) day\(slip == 1 ? "" : "s") later than this morning" : "▲ \(-slip) day\(slip == -1 ? "" : "s") earlier than this morning")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(slip > 0 ? Theme.red : Theme.accent)
-            }
-        }
-        .padding(.vertical, 10).padding(.horizontal, 14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.bg, in: RoundedRectangle(cornerRadius: 10))
+    private func shortDay(_ key: String) -> String {
+        guard let d = session.clock.date(key) else { return key }
+        let f = DateFormatter()
+        f.setLocalizedDateFormatFromTemplate("EEE")
+        return f.string(from: d)
     }
 }
 
-private struct CategoryPicker: View {
+// MARK: - 2. Your plan (self-written tasks)
+
+private struct TasksPanel: View {
     @Environment(StudySession.self) private var session
-    @Environment(ProgressStore.self) private var store
+    @State private var dayOffset = 0
+    @State private var newTask = ""
+    @State private var editingID: String?
+    @State private var editDraft = ""
+    @State private var showPaste = false
+    @State private var dropTarget: String?
+    @FocusState private var editFocused: Bool
+
+    private var day: String { session.clock.add(dayOffset, to: session.today) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Categories in the plan (none selected = all). Changes apply from tomorrow, or use Rebuild in Settings.")
-                .font(.system(size: 12)).foregroundStyle(Theme.muted)
-            FlowLayout(spacing: 7) {
-                ForEach(session.categories, id: \.self) { category in
-                    let on = store.data.plan.categories.contains(category)
-                    Button {
-                        if on { store.data.plan.categories.removeAll { $0 == category } }
-                        else { store.data.plan.categories.append(category) }
-                    } label: {
-                        Text((on ? "✓ " : "") + category + " · \(CardTiming.minutes(for: category, overrides: store.data.categoryMinutes))m")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(on ? .white : Theme.muted)
-                            .padding(.vertical, 6).padding(.horizontal, 12)
-                            .background(on ? Theme.accent : Theme.card, in: Capsule())
-                            .overlay(Capsule().stroke(on ? Theme.accent : Theme.border))
-                            .contentShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
+        let tasks = session.tasks(on: day)
+        let doneCount = tasks.filter(\.done).count
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                SectionTitle(text: "2 · Your plan")
+                Spacer()
+                Button("📋 Paste plan…") { showPaste = true }
+                    .buttonStyle(OutlineButtonStyle())
+                    .help("Paste a written plan with [Nov 25] style date headers")
+            }
+            HStack(spacing: 10) {
+                Button { dayOffset -= 1 } label: { Image(systemName: "chevron.left") }.buttonStyle(.plain)
+                Text(dayTitle).font(.system(size: 15, weight: .bold)).frame(minWidth: 150)
+                Button { dayOffset += 1 } label: { Image(systemName: "chevron.right") }.buttonStyle(.plain)
+                if dayOffset != 0 {
+                    Button("Today") { dayOffset = 0 }.buttonStyle(LinkButtonStyle(underline: true))
+                }
+                Spacer()
+                if !tasks.isEmpty {
+                    Text("\(doneCount)/\(tasks.count) done").font(.system(size: 12).monospacedDigit()).foregroundStyle(Theme.muted)
                 }
             }
+
+            if dayOffset == 0 && !session.overdueTasks.isEmpty {
+                overdueSection
+            }
+
+            VStack(spacing: 6) {
+                ForEach(tasks) { task in row(task) }
+            }
+            if tasks.isEmpty {
+                Text(dayOffset == 0 ? "No tasks for today yet. Add one below, or paste your written plan."
+                                    : "Nothing planned for this day yet.")
+                    .font(.system(size: 12)).foregroundStyle(Theme.muted)
+            }
+
+            HStack(spacing: 8) {
+                TextField("Add a task, e.g. “All sorting in C Programs + linked list” — press Return", text: $newTask)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit { add() }
+                Button("＋ Add") { add() }
+                    .buttonStyle(FilledButtonStyle(color: Theme.accent))
+                    .disabled(newTask.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+            Text("Tip: a task that names a category (e.g. “Resume QA”) gets a ▶ Start button. Use the link menu to point it at a category or one of its sections.")
+                .font(.system(size: 11)).foregroundStyle(Theme.muted)
         }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .panel()
+        .sheet(isPresented: $showPaste) { PastePlanSheet() }
+    }
+
+    private var dayTitle: String {
+        switch dayOffset {
+        case 0: return "Today"
+        case 1: return "Tomorrow"
+        case -1: return "Yesterday"
+        default:
+            let f = DateFormatter()
+            f.setLocalizedDateFormatFromTemplate("EEE d MMM")
+            return session.clock.date(day).map { f.string(from: $0) } ?? day
+        }
+    }
+
+    private func add() {
+        session.addTask(newTask, on: day)
+        newTask = ""
+    }
+
+    private var overdueSection: some View {
+        let overdue = session.overdueTasks
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("Unfinished from earlier (\(overdue.count))")
+                    .font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.red)
+                Spacer()
+                Button("Move all to today") {
+                    for item in overdue { session.moveTask(item.task.id, from: item.day, to: session.today) }
+                }
+                .buttonStyle(LinkButtonStyle(underline: true))
+            }
+            ForEach(overdue, id: \.task.id) { item in
+                HStack {
+                    Text(item.task.text).font(.system(size: 13)).lineLimit(1)
+                    Spacer()
+                    Button("→ Today") { session.moveTask(item.task.id, from: item.day, to: session.today) }
+                        .buttonStyle(LinkButtonStyle(underline: true))
+                    Button { session.updateTask(item.task.id, on: item.day) { $0.done = true } } label: {
+                        Image(systemName: "checkmark")
+                    }
+                    .buttonStyle(.plain).help("Mark done")
+                }
+                .padding(.vertical, 6).padding(.horizontal, 10)
+                .background(Theme.redSoft, in: RoundedRectangle(cornerRadius: 8))
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func row(_ task: PlanTask) -> some View {
+        let linkCards = task.link.map(session.cards(for:)) ?? []
+        HStack(spacing: 10) {
+            Image(systemName: "line.3.horizontal")
+                .font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.muted)
+                .draggable(task.id)
+            Button { session.updateTask(task.id, on: day) { $0.done.toggle() } } label: {
+                Image(systemName: task.done ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 17))
+                    .foregroundStyle(task.done ? Theme.accent : Theme.muted)
+            }
+            .buttonStyle(.plain)
+            if editingID == task.id {
+                TextField("Task", text: $editDraft)
+                    .textFieldStyle(.roundedBorder)
+                    .focused($editFocused)
+                    .onSubmit { commitEdit(task) }
+                    .onExitCommand { editingID = nil }
+                    .onChange(of: editFocused) { _, f in if !f { commitEdit(task) } }
+            } else {
+                Text(task.text)
+                    .font(.system(size: 14, weight: .semibold))
+                    .strikethrough(task.done)
+                    .foregroundStyle(task.done ? Theme.muted : Theme.ink)
+                    .onTapGesture(count: 2) { editingID = task.id; editDraft = task.text; DispatchQueue.main.async { editFocused = true } }
+                    .help("Double-click to edit")
+            }
+            Spacer()
+            linkMenu(task)
+            if task.link != nil {
+                Button("▶ Start (\(linkCards.count))") { session.startTask(task) }
+                    .buttonStyle(FilledButtonStyle(color: Theme.accent))
+                    .disabled(linkCards.isEmpty)
+            }
+            Menu {
+                if dayOffset != 1 {
+                    Button("Move to tomorrow") { session.moveTask(task.id, from: day, to: session.clock.add(1, to: session.today)) }
+                }
+                if dayOffset != 0 {
+                    Button("Move to today") { session.moveTask(task.id, from: day, to: session.today) }
+                }
+                Button("Edit") { editingID = task.id; editDraft = task.text; DispatchQueue.main.async { editFocused = true } }
+                Divider()
+                Button("Delete", role: .destructive) { session.deleteTask(task.id, on: day) }
+            } label: {
+                Image(systemName: "ellipsis.circle").foregroundStyle(Theme.muted)
+            }
+            .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+        }
+        .padding(.vertical, 8).padding(.horizontal, 12)
+        .background(task.done ? Theme.bg : Theme.card, in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(dropTarget == task.id ? Theme.accent : Theme.border,
+                                                           lineWidth: dropTarget == task.id ? 2 : 1))
+        .dropDestination(for: String.self) { ids, _ in
+            guard let id = ids.first else { return false }
+            session.moveTask(id, onto: task.id, on: day)
+            dropTarget = nil
+            return true
+        } isTargeted: { t in dropTarget = t ? task.id : (dropTarget == task.id ? nil : dropTarget) }
+    }
+
+    private func linkMenu(_ task: PlanTask) -> some View {
+        Menu {
+            Button("No link") { session.updateTask(task.id, on: day) { $0.link = nil } }
+            Divider()
+            ForEach(session.categories, id: \.self) { category in
+                let sections = session.dividers.filter { $0.sheet == category }
+                if sections.isEmpty {
+                    Button(category) { session.updateTask(task.id, on: day) { $0.link = TaskLink(category: category) } }
+                } else {
+                    Menu(category) {
+                        Button("Whole category") { session.updateTask(task.id, on: day) { $0.link = TaskLink(category: category) } }
+                        Divider()
+                        ForEach(sections) { d in
+                            Button(d.title) { session.updateTask(task.id, on: day) { $0.link = TaskLink(category: category, section: d.title) } }
+                        }
+                    }
+                }
+            }
+        } label: {
+            Text(task.link?.label ?? "🔗 Link")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(task.link == nil ? Theme.muted : Theme.accent)
+                .lineLimit(1)
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .help("Link this task to a category or section so ▶ Start opens those questions")
+    }
+
+    private func commitEdit(_ task: PlanTask) {
+        guard editingID == task.id else { return }
+        editingID = nil
+        let text = editDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, text != task.text else { return }
+        session.updateTask(task.id, on: day) { $0.text = text }
+    }
+}
+
+/// Paste a written plan ("[Nov 25 ]" headers with tasks under them) to fill your days.
+private struct PastePlanSheet: View {
+    @Environment(StudySession.self) private var session
+    @Environment(\.dismiss) private var dismiss
+    @State private var text = ""
+
+    var body: some View {
+        let preview = PlanText.parse(text, today: session.today, categories: session.categories, clock: session.clock)
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Paste your plan").font(.system(size: 16, weight: .bold))
+            Text("Start each day with a date line such as [Nov 25] or 25 Nov, then one task per line. Lines like “Revise as per algo” are skipped — the app shows revision for you.")
+                .font(.system(size: 12)).foregroundStyle(Theme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+            TextEditor(text: $text)
+                .font(.system(size: 13, design: .monospaced))
+                .frame(minHeight: 260)
+                .scrollContentBackground(.hidden)
+                .padding(6)
+                .background(Theme.card, in: RoundedRectangle(cornerRadius: 8))
+                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
+            let days = preview.tasksByDay.keys.sorted()
+            if !days.isEmpty {
+                VStack(alignment: .leading, spacing: 3) {
+                    ForEach(days, id: \.self) { d in
+                        let tasks = preview.tasksByDay[d] ?? []
+                        Text("\(d): " + tasks.map { $0.text + ($0.link.map { " 🔗\($0.category)" } ?? "") }.joined(separator: " · "))
+                            .font(.system(size: 11)).foregroundStyle(Theme.ink).lineLimit(2)
+                    }
+                    if preview.skippedRevisionLines > 0 {
+                        Text("Skipped \(preview.skippedRevisionLines) revision line\(preview.skippedRevisionLines == 1 ? "" : "s").")
+                            .font(.system(size: 11)).foregroundStyle(Theme.muted)
+                    }
+                    if preview.unassignedLines > 0 {
+                        Text("\(preview.unassignedLines) line\(preview.unassignedLines == 1 ? "" : "s") before the first date were ignored.")
+                            .font(.system(size: 11)).foregroundStyle(Theme.red)
+                    }
+                }
+            }
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }.buttonStyle(OutlineButtonStyle()).keyboardShortcut(.cancelAction)
+                Button("Add \(preview.tasksByDay.values.map(\.count).reduce(0, +)) tasks") {
+                    session.importPlan(text)
+                    dismiss()
+                }
+                .buttonStyle(FilledButtonStyle(color: Theme.accent))
+                .disabled(preview.tasksByDay.isEmpty)
+            }
+        }
+        .padding(20)
+        .frame(width: 620)
     }
 }
 
@@ -199,8 +455,11 @@ private struct AlgorithmPanel: View {
             }
             VStack(alignment: .leading, spacing: 5) {
                 line("Memory model", "each card has its own stability (how long you'll remember it), difficulty, and chance of recall today.")
-                line("Next review", "set for the day your chance of recall drops to \(target)% — easy cards wait longer, hard ones return sooner.")
-                line("Your ratings", "❌ Again (forgot) · 😬 Hard · ✅ Good · ⭐ Easy. ✓ Studied (in Study mode) counts as Good.")
+                line("Fixed checkpoints", store.data.useCheckpoints
+                     ? "a newly studied card is revised 1, 3, 7 and 14 days later, whatever you rate it (Again restarts them). FSRS runs alongside from the same day; the card comes back on whichever date is first. After day 14 only FSRS is left."
+                     : "off — FSRS schedules every card from the start (turn on in Settings › Memory).")
+                line("Next review (FSRS)", "set for the day your chance of recall drops to \(target)% — easy cards wait longer, hard ones return sooner.")
+                line("Your ratings", "❌ Again (forgot) · 😬 Hard · ✅ Good · ⭐ Easy. ✓ Studied (in Study mode) starts the checkpoints and FSRS.")
                 line("Practice only", "answering a card that isn't due yet doesn't change its schedule.")
                 line("Mastered", "when FSRS expects you to still recall the card three weeks later.")
             }
@@ -217,245 +476,154 @@ private struct AlgorithmPanel: View {
     }
 }
 
-// MARK: - Today's sessions
+// MARK: - Studied cards and their FSRS schedule, per category
 
-private struct TodayPanel: View {
-    @Environment(StudySession.self) private var session
-    @Environment(SessionNotifier.self) private var notifier
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                SectionTitle(text: "Today's sessions")
-                Spacer()
-                if notifier.authorized == false {
-                    Text("🔕 Reminders are off — allow notifications for FlashCardsQA in System Settings › Notifications.")
-                        .font(.system(size: 11)).foregroundStyle(Theme.red)
-                } else if notifier.scheduledCount > 0 {
-                    Text("🔔 \(notifier.scheduledCount) reminders scheduled, \(session.progress.data.notifyLeadMinutes) min before each session")
-                        .font(.system(size: 11)).foregroundStyle(Theme.muted)
-                }
-            }
-            ForEach(session.allSlots) { slot in
-                if slot.focus.isStudy {
-                    SessionRow(slot: slot)
-                } else {
-                    HStack(spacing: 10) {
-                        Text(slot.emoji)
-                        Text("\(slot.timeRange)  \(slot.name)").font(.system(size: 13, weight: .semibold))
-                        Text("Applications, follow-ups, lunch. Not counted as study.")
-                            .font(.system(size: 12)).foregroundStyle(Theme.muted)
-                    }
-                    .padding(.vertical, 10).padding(.horizontal, 14)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Theme.bg.opacity(0.6), in: RoundedRectangle(cornerRadius: 10))
-                }
-            }
-            HStack(spacing: 10) {
-                Button("🗓 Busy today (interview / applications)") { session.busyToday() }
-                    .buttonStyle(OutlineButtonStyle())
-                    .disabled(session.todayRemaining.new + session.todayRemaining.review == 0)
-                    .help("Moves everything left today to tomorrow")
-                Button("🔁 Quick recall: today's new (\(session.todaysNewCards.count))") { session.startQuickRecall() }
-                    .buttonStyle(OutlineButtonStyle())
-                    .disabled(session.todaysNewCards.isEmpty)
-            }
-        }
-        .padding(20)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .panel()
-    }
-}
-
-private struct SessionRow: View {
-    @Environment(StudySession.self) private var session
-    @Environment(ProgressStore.self) private var store
-    let slot: StudySlot
-
-    var body: some View {
-        let target = session.target(for: slot)
-        let status = session.status(for: slot)
-        let total = target.allKeys.count
-        let done = target.allKeys.filter { session.isDoneToday($0) }.count
-        let left = session.remaining(slot)
-        let carriedLeft = target.carriedKeys.filter { !session.isDoneToday($0) }.count
-
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 10) {
-                Text(slot.emoji).font(.system(size: 18))
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("\(slot.name) · \(slot.timeRange)").font(.system(size: 14, weight: .bold))
-                    Text(slot.focus.label).font(.system(size: 11)).foregroundStyle(Theme.muted)
-                }
-                badge(status)
-                Spacer()
-                if !left.new.isEmpty {
-                    Button("📖 Learn \(left.new.count) new") { session.startSession(slot) }
-                        .buttonStyle(FilledButtonStyle(color: Theme.accent))
-                }
-                if !left.review.isEmpty {
-                    Button("🔁 Revise \(left.review.count)") { session.startSessionReviews(slot) }
-                        .buttonStyle(FilledButtonStyle(color: left.new.isEmpty ? Theme.red : Theme.inkButton))
-                }
-            }
-            Text(describe(target))
-                .font(.system(size: 12)).foregroundStyle(Theme.muted)
-            if carriedLeft > 0 {
-                Text("↪ \(carriedLeft) carried over from an earlier session")
-                    .font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.red)
-            }
-            if status == .missed && left.new.isEmpty && left.review.isEmpty && done < total {
-                Text("Time's up — \(total - done) moved to the next session")
-                    .font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.red)
-            }
-            if total > 0 {
-                ProgressLine(label: "Done", value: done, total: total, color: status == .done ? Theme.accent : Theme.red.opacity(0.75))
-            }
-        }
-        .padding(14)
-        .background(status == .now ? Theme.accentSoft : Theme.bg, in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(status == .now ? Theme.accent : .clear))
-    }
-
-    private func describe(_ target: SlotTarget) -> String {
-        if target.allKeys.isEmpty { return "Nothing due — free time, or use Quick recall below." }
-        let cost = CostModel(store.data)
-        var parts: [String] = []
-        let newCards = session.cards(for: target.newKeys)
-        let reviewCards = session.cards(for: target.reviewKeys)
-        if !newCards.isEmpty { parts.append("Learn \(newCards.count) new: \(breakdown(newCards))") }
-        if !reviewCards.isEmpty { parts.append("Revise \(reviewCards.count): \(breakdown(reviewCards))") }
-        let minutes = newCards.reduce(0) { $0 + cost.newMinutes($1.topic) } + reviewCards.reduce(0) { $0 + cost.reviewMinutes($1.topic) }
-        return parts.joined(separator: " · ") + " · ~\(Int(minutes.rounded())) min"
-    }
-
-    private func breakdown(_ cards: [Card]) -> String {
-        Dictionary(grouping: cards, by: \.topic).mapValues(\.count)
-            .sorted { $0.value > $1.value }.map { "\($0.key) ×\($0.value)" }.joined(separator: ", ")
-    }
-
-    @ViewBuilder private func badge(_ status: SlotStatus) -> some View {
-        switch status {
-        case .done: pill("Done ✓", Theme.accent)
-        case .now: pill("Now", Theme.accent)
-        case .upcoming: pill("Upcoming", Theme.muted)
-        case .missed: pill("Missed → carried", Theme.red)
-        case .skipped: pill("Skipped (busy)", Theme.muted)
-        }
-    }
-
-    private func pill(_ text: String, _ color: Color) -> some View {
-        Text(text).font(.system(size: 11, weight: .bold)).foregroundStyle(color)
-            .padding(.vertical, 3).padding(.horizontal, 8)
-            .background(color.opacity(0.12), in: Capsule())
-    }
-}
-
-// MARK: - Next 14 days
-
-private struct UpcomingPanel: View {
-    @Environment(StudySession.self) private var session
-
-    var body: some View {
-        let forecast = session.forecast()
-        let slots = session.studySlots
-        VStack(alignment: .leading, spacing: 10) {
-            SectionTitle(text: "Next \(forecast.days.count) days")
-            Grid(alignment: .leading, horizontalSpacing: 22, verticalSpacing: 7) {
-                GridRow {
-                    Text("Day")
-                    ForEach(slots) { Text("\($0.emoji) \($0.name)") }
-                    Text("Time")
-                    Text("")
-                }
-                .font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.muted)
-                ForEach(forecast.days, id: \.day) { day in
-                    GridRow {
-                        Text(dayLabel(day.day, clock: session.clock, today: session.today))
-                            .fontWeight(day.day == session.today ? .bold : .regular)
-                        ForEach(day.slots, id: \.slotId) { s in
-                            Text(cell(s)).foregroundStyle(s.newCount + s.reviewCount == 0 ? Theme.muted : Theme.ink)
-                        }
-                        Text("~\(Durations.short(day.minutes * 60))").foregroundStyle(Theme.muted)
-                        if day.carried > 0 {
-                            Text("↪ \(day.carried) carried").font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.red)
-                        } else {
-                            Text("")
-                        }
-                    }
-                    .font(.system(size: 13).monospacedDigit())
-                }
-            }
-            Text("Today shows what's left. Later days assume you keep up and recall correctly; misses push work forward.")
-                .font(.system(size: 11)).foregroundStyle(Theme.muted)
-        }
-        .padding(20)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .panel()
-    }
-
-    private func cell(_ s: SlotForecast) -> String {
-        var parts: [String] = []
-        if s.newCount > 0 { parts.append("\(s.newCount) new") }
-        if s.reviewCount > 0 { parts.append("\(s.reviewCount) rev") }
-        return parts.isEmpty ? "—" : parts.joined(separator: " · ")
-    }
-}
-
-// MARK: - Progress by category
-
+/// Per category: how many cards you've studied, and where they stand in FSRS. "Due today" uses
+/// the same rule as "Revise first", so the numbers match. Expand a row to see each studied card.
 private struct CategoryProgressPanel: View {
     @Environment(StudySession.self) private var session
+    @State private var expanded: Set<String> = []
+
+    private struct Row {
+        var name: String
+        var total = 0, studied = 0, dueToday = 0, next7 = 0, mastered = 0, weak = 0
+    }
 
     var body: some View {
-        let groups = Dictionary(grouping: session.planCards, by: \.topic)
+        let today = session.today
+        let weekEnd = session.clock.add(7, to: today)
+        let groups = Dictionary(grouping: session.cards, by: \.topic)
         let order = session.categories.filter { groups[$0] != nil }
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                SectionTitle(text: "Progress by category")
-                Spacer()
-                legend(Theme.border, "New")
-                legend(Theme.red.opacity(0.75), "Learning")
-                legend(Theme.accent, "Mastered (3+ week memory)")
+        let rows: [Row] = order.map { name in
+            var r = Row(name: name)
+            for card in groups[name] ?? [] {
+                r.total += 1
+                guard let rev = session.review(for: card) else { continue }
+                r.studied += 1
+                if rev.dueDay <= today { r.dueToday += 1 } else if rev.dueDay <= weekEnd { r.next7 += 1 }
+                if SpacedRepetition.status(rev) == .mastered { r.mastered += 1 }
+                if SpacedRepetition.isWeak(rev) { r.weak += 1 }
             }
-            ForEach(order, id: \.self) { category in
-                let cards = groups[category] ?? []
-                let counts = Dictionary(grouping: cards) { SpacedRepetition.status(session.review(for: $0)) }
-                    .mapValues(\.count)
-                let learned = cards.count - (counts[.new] ?? 0)
-                let weak = cards.filter { SpacedRepetition.isWeak(session.review(for: $0)) }.count
-                HStack(spacing: 12) {
-                    Text(category).font(.system(size: 13, weight: .semibold)).frame(width: 200, alignment: .leading)
-                        .lineLimit(1)
-                    GeometryReader { geo in
-                        HStack(spacing: 0) {
-                            segment(counts[.mastered] ?? 0, cards.count, geo.size.width, Theme.accent)
-                            segment(counts[.learning] ?? 0, cards.count, geo.size.width, Theme.red.opacity(0.75))
-                            segment(counts[.new] ?? 0, cards.count, geo.size.width, Theme.border)
-                        }
-                        .clipShape(Capsule())
-                    }
-                    .frame(height: 10)
-                    Text("\(learned)/\(cards.count) learned" + (weak > 0 ? " · \(weak) weak" : ""))
-                        .font(.system(size: 12).monospacedDigit()).foregroundStyle(Theme.muted)
-                        .frame(width: 170, alignment: .trailing)
+            return r
+        }
+        let all = rows.reduce(into: Row(name: "All categories")) { t, r in
+            t.total += r.total; t.studied += r.studied; t.dueToday += r.dueToday
+            t.next7 += r.next7; t.mastered += r.mastered; t.weak += r.weak
+        }
+
+        VStack(alignment: .leading, spacing: 10) {
+            Text("By category").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.muted)
+            Text("Studied = cards in your FSRS schedule (marked Studied or rated in Practice). ▶ Revise does one category's due cards; expand a category to see when each studied card comes back.")
+                .font(.system(size: 11)).foregroundStyle(Theme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+            Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 8) {
+                GridRow {
+                    Text("Category"); Text("Studied"); Text("Due today"); Text("Next 7 days"); Text("Mastered"); Text("Weak"); Text("")
                 }
+                .font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.muted)
+                ForEach(rows, id: \.name) { r in
+                    rowView(r, bold: false)
+                    if expanded.contains(r.name) {
+                        GridRow {
+                            cardList(groups[r.name] ?? [])
+                                .gridCellColumns(7)
+                        }
+                    }
+                }
+                Divider().gridCellUnsizedAxes(.horizontal)
+                rowView(all, bold: true)
             }
         }
-        .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .panel()
     }
 
-    private func segment(_ n: Int, _ total: Int, _ width: CGFloat, _ color: Color) -> some View {
-        Rectangle().fill(color).frame(width: total == 0 ? 0 : width * CGFloat(n) / CGFloat(total))
-    }
+    @ViewBuilder
+    private func rowView(_ r: Row, bold: Bool) -> some View {
+        let canExpand = !bold && r.studied > 0
+        GridRow {
+            Button {
+                guard canExpand else { return }
+                if expanded.contains(r.name) { expanded.remove(r.name) } else { expanded.insert(r.name) }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: expanded.contains(r.name) ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(canExpand ? Theme.muted : .clear)
+                    Text(r.name).font(.system(size: 13, weight: bold ? .heavy : .semibold)).lineLimit(1)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .frame(minWidth: 200, alignment: .leading)
 
-    private func legend(_ color: Color, _ text: String) -> some View {
-        HStack(spacing: 5) {
-            Circle().fill(color).frame(width: 8, height: 8)
-            Text(text).font(.system(size: 11)).foregroundStyle(Theme.muted)
+            HStack(spacing: 8) {
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(Theme.border)
+                        Capsule().fill(Theme.accent)
+                            .frame(width: r.total == 0 ? 0 : geo.size.width * CGFloat(r.studied) / CGFloat(r.total))
+                    }
+                }
+                .frame(width: 90, height: 8)
+                Text("\(r.studied)/\(r.total)").font(.system(size: 12, weight: bold ? .bold : .regular).monospacedDigit())
+                    .fixedSize()
+            }
+            count(r.dueToday, color: Theme.red, bold: bold)
+            count(r.next7, color: Theme.ink, bold: bold)
+            count(r.mastered, color: Theme.accent, bold: bold)
+            count(r.weak, color: Theme.red, bold: bold)
+            if !bold && r.dueToday > 0 {
+                Button { session.startRevision(category: r.name) } label: {
+                    Text("▶ Revise (\(r.dueToday))")
+                        .font(.system(size: 11, weight: .bold)).foregroundStyle(.white)
+                        .padding(.vertical, 4).padding(.horizontal, 9)
+                        .background(Theme.red, in: Capsule())
+                        .fixedSize()
+                }
+                .buttonStyle(.plain)
+            } else {
+                Text("")
+            }
         }
+    }
+
+    private func count(_ n: Int, color: Color, bold: Bool) -> some View {
+        Text(n == 0 ? "–" : "\(n)")
+            .font(.system(size: 13, weight: bold ? .heavy : .semibold).monospacedDigit())
+            .foregroundStyle(n == 0 ? Theme.muted : color)
+    }
+
+    /// Studied cards of one category, soonest due first.
+    private func cardList(_ cards: [Card]) -> some View {
+        let studied = cards.compactMap { c in session.review(for: c).map { (c, $0) } }
+            .sorted { $0.1.dueDay < $1.1.dueDay }
+        return VStack(alignment: .leading, spacing: 4) {
+            ForEach(studied, id: \.0.id) { card, rev in
+                HStack(spacing: 10) {
+                    Text(Rating(rawValue: rev.lastRating ?? 3)?.emoji ?? "✅").font(.system(size: 11))
+                    Text(card.question).font(Theme.questionFont(card.topic, size: 12)).lineLimit(1)
+                    Spacer(minLength: 12)
+                    PhaseBadge(review: rev, compact: true)
+                    Text(dueLabel(rev.dueDay))
+                        .font(.system(size: 11, weight: .semibold).monospacedDigit())
+                        .foregroundStyle(rev.dueDay <= session.today ? Theme.red : Theme.ink)
+                        .frame(width: 130, alignment: .trailing)
+                }
+                .padding(.vertical, 4).padding(.horizontal, 10)
+                .background(Theme.bg, in: RoundedRectangle(cornerRadius: 6))
+            }
+        }
+        .padding(.leading, 18)
+    }
+
+    private func dueLabel(_ day: String) -> String {
+        let n = session.clock.days(from: session.today, to: day)
+        if n < 0 { return "overdue \(-n)d" }
+        if n == 0 { return "due today" }
+        if n == 1 { return "tomorrow" }
+        let f = DateFormatter()
+        f.setLocalizedDateFormatFromTemplate("d MMM")
+        return "in \(n)d · " + (session.clock.date(day).map { f.string(from: $0) } ?? day)
     }
 }
 
@@ -568,10 +736,10 @@ private struct ResearchNote: View {
                 point("Rate honestly", "Again = forgot, Hard = got it with effort, Good = recalled, Easy = instant. Honest ratings make the schedule fit you.")
                 point("Retrieval practice", "Recalling an answer strengthens memory more than re-reading, so new cards end with \"Test yourself\" and reviews use Practice mode. (Roediger & Karpicke, 2006)")
                 point("Interleaving", "Mixing categories helps you tell topics apart: new cards rotate across categories and reviews are shuffled. (Rohrer & Taylor, 2007)")
-                point("Morning for new material", "Learn new cards when you're freshest; do applications at midday when focus dips anyway.")
+                point("Revise first", "Clearing due cards in the morning keeps the backlog from growing; FSRS has already picked the right ones.")
                 point("Evening review", "A short review before sleep helps memories settle overnight.")
                 point("Time boxes and breaks", "5 minutes per Q&A and 20 per C program keeps you from over-polishing one card; take 10 minutes off after ~50 minutes of focus.")
-                point("Interview or busy day", "Use \"Busy today\" — the plan moves the work and shows the new finish date instead of letting cards pile up silently.")
+                point("Interview or busy day", "Still do the revision (it's usually short), then move the day's tasks to tomorrow from each task's ⋯ menu.")
             }
             .padding(.top, 8)
         } label: {
