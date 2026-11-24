@@ -7,6 +7,13 @@ private let categoryIcons = ["Resume QA": "📄", "Embedded QA": "⚙️"]
 
 struct ContentView: View {
     @Environment(StudySession.self) private var session
+    @Environment(CardTimer.self) private var timer
+
+    /// The card whose timer is shown: only in Study and Practice.
+    private var timedCard: Card? {
+        session.mode == .study || session.mode == .running ? session.current : nil
+    }
+    private var timedCardID: String? { timedCard.map { "\($0.id)-\(session.mode == .study)" } }
 
     var body: some View {
         ScrollView {
@@ -14,11 +21,13 @@ struct ContentView: View {
                 HeaderView()
                 CategoryChips().padding(.bottom, 20)
                 if !session.status.isEmpty { StatusBanner().padding(.bottom, 16) }
+                BreakNudge()
                 switch session.mode {
                 case .start: StartView()
                 case .study: StudyView()
                 case .running: PracticeView()
                 case .done: ResultsView()
+                case .plan: PlanView()
                 }
             }
             .frame(maxWidth: 1000)
@@ -31,6 +40,7 @@ struct ContentView: View {
         .foregroundStyle(Theme.ink)
         .frame(minWidth: 820, minHeight: 600)
         .task { await session.refresh() }
+        .onChange(of: timedCardID, initial: true) { timer.show(timedCard) }
     }
 }
 
@@ -38,6 +48,7 @@ struct ContentView: View {
 
 struct HeaderView: View {
     @Environment(StudySession.self) private var session
+    @Environment(CardTimer.self) private var timer
 
     var body: some View {
         ViewThatFits(in: .horizontal) {
@@ -57,15 +68,22 @@ struct HeaderView: View {
     }
 
     private var actions: some View {
-        HStack(spacing: 9) {
-            Text(session.loading ? "Loading workbook…" : "\(session.cards.count) questions loaded")
-                .font(.system(size: 13)).foregroundStyle(Theme.muted)
-            Button("📂 Import Excel") { openImportPanel(session) }
-                .buttonStyle(OutlineButtonStyle())
-            Button(session.loading ? "↻ Refreshing…" : "↻ Refresh") { Task { await session.refresh() } }
-                .buttonStyle(OutlineButtonStyle())
-                .disabled(session.loading)
+        VStack(alignment: .trailing, spacing: 7) {
+            HStack(spacing: 9) {
+                Button("🗓 Study Plan") { session.openPlan() }
+                    .buttonStyle(OutlineButtonStyle())
+                Button("📂 Import Excel") { openImportPanel(session) }
+                    .buttonStyle(OutlineButtonStyle())
+                Button(session.loading ? "↻ Refreshing…" : "↻ Refresh") { Task { await session.refresh() } }
+                    .buttonStyle(OutlineButtonStyle())
+                    .disabled(session.loading)
+            }
+            Text((session.loading ? "Loading workbook…" : "\(session.cards.count) questions loaded")
+                 + " · Today: \(Durations.short(timer.todayTotal)) studied")
+                .font(.system(size: 12)).foregroundStyle(Theme.muted)
         }
+        .lineLimit(1)
+        .fixedSize()
     }
 }
 
@@ -129,6 +147,22 @@ struct StartView: View {
     var body: some View {
         @Bindable var session = session
         VStack(alignment: .leading, spacing: 18) {
+            let todayLeft = session.todayRemaining
+            if !session.cards.isEmpty && (todayLeft.new + todayLeft.review > 0) {
+                Button { session.openPlan() } label: {
+                    HStack(spacing: 8) {
+                        Text("📌")
+                        Text("Today's plan: \(todayLeft.new) new to learn · \(todayLeft.review) to revise")
+                            .font(.system(size: 13, weight: .semibold))
+                        Spacer()
+                        Text("Open Study Plan →").font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.accent)
+                    }
+                    .padding(.vertical, 11).padding(.horizontal, 16)
+                    .panel(radius: 12)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
             if session.topic == "All" && !session.categories.isEmpty {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 165), spacing: 12)], spacing: 12) {
                     ForEach(session.categories, id: \.self) { item in
@@ -262,6 +296,7 @@ private struct CardView: View {
         .frame(maxWidth: .infinity, minHeight: 175, alignment: centered ? .top : .topLeading)
         .padding(30)
         .panel(radius: 18)
+        .overlay(alignment: .topTrailing) { CardTimerView().padding(14) }
         .shadow(color: .black.opacity(0.05), radius: 14, y: 8)
     }
 }
@@ -287,12 +322,22 @@ struct StudyView: View {
                         .disabled(session.index == 0)
                         .keyboardShortcut(.leftArrow, modifiers: [])
                     Spacer()
-                    Button("Next →") { session.next() }
-                        .buttonStyle(FilledButtonStyle(color: Theme.accent))
-                        .disabled(session.index == session.deck.count - 1)
-                        .keyboardShortcut(.rightArrow, modifiers: [])
+                    if session.index == session.deck.count - 1 {
+                        // Retrieval practice: finish a study pass by testing yourself.
+                        Button("✍️ Test yourself on these (\(session.deck.count))") { session.testStudiedCards() }
+                            .buttonStyle(FilledButtonStyle(color: Theme.accent))
+                            .keyboardShortcut(.rightArrow, modifiers: [])
+                    } else {
+                        Button("Next →") { session.next() }
+                            .buttonStyle(FilledButtonStyle(color: Theme.accent))
+                            .keyboardShortcut(.rightArrow, modifiers: [])
+                    }
                 }
                 .padding(.top, 17)
+                if session.studyingNewCards {
+                    Text("New cards join your review schedule once you test yourself on them.")
+                        .font(.system(size: 11)).foregroundStyle(Theme.muted).padding(.top, 12)
+                }
             }
             .frame(maxWidth: 720)
             .frame(maxWidth: .infinity)
@@ -324,26 +369,59 @@ struct PracticeView: View {
                             .buttonStyle(FilledButtonStyle(color: Theme.accent))
                             .keyboardShortcut(.space, modifiers: [])
                     } else {
-                        Button("✅ I knew it") { session.answer(true) }
-                            .buttonStyle(FilledButtonStyle(color: Theme.accent))
-                            .keyboardShortcut("k", modifiers: [])
-                        Button("❌ Practice again") { session.answer(false) }
-                            .buttonStyle(FilledButtonStyle(color: Theme.red))
-                            .keyboardShortcut("p", modifiers: [])
+                        let preview = session.ratingPreview
+                        ForEach(Rating.allCases, id: \.self) { rating in
+                            Button { session.answer(rating) } label: {
+                                VStack(spacing: 2) {
+                                    Text("\(rating.emoji) \(rating.label)")
+                                    Text(preview[rating].map { rating == .again ? "<\($0)d" : FSRS.intervalLabel($0) } ?? "")
+                                        .font(.system(size: 11, weight: .semibold)).opacity(0.85)
+                                }
+                                .frame(minWidth: 70)
+                            }
+                            .buttonStyle(FilledButtonStyle(color: color(rating)))
+                            .keyboardShortcut(KeyEquivalent(Character(String(rating.rawValue))), modifiers: [])
+                        }
                     }
                 }
                 .padding(.top, 17)
+                // Old shortcuts still work: K = Good, P = Again.
+                .background {
+                    if session.flipped {
+                        Button("") { session.answer(.good) }.keyboardShortcut("k", modifiers: []).opacity(0)
+                        Button("") { session.answer(.again) }.keyboardShortcut("p", modifiers: []).opacity(0)
+                    }
+                }
+                if session.flipped && !session.isScheduled(card), let due = session.review(for: card)?.dueDay {
+                    Text("Practice only — this card isn't due until \(due), so your rating won't change its schedule.")
+                        .font(.system(size: 12)).foregroundStyle(Theme.muted).padding(.top, 10)
+                }
+                if !session.flipped && card.topic.lowercased().contains("program") {
+                    Text("✍️ Write the code on paper (or in an editor) first, then reveal and compare.")
+                        .font(.system(size: 12)).foregroundStyle(Theme.accent).padding(.top, 12)
+                }
                 if !session.flipped {
                     Button("Skip") { session.skip() }
                         .buttonStyle(LinkButtonStyle(underline: true))
                         .keyboardShortcut("s", modifiers: [])
                         .padding(.top, 12)
                 }
-                Text(session.flipped ? "Shortcuts: K knew it · P practice again" : "Shortcuts: Space reveal · S skip · Esc end")
+                Text(session.flipped ? "How well did you recall it? Keys 1 Again · 2 Hard · 3 Good · 4 Easy — the time under each is when you'll see it next."
+                                     : "Shortcuts: Space reveal · S skip · Esc end")
+                    .multilineTextAlignment(.center)
                     .font(.system(size: 11)).foregroundStyle(Theme.muted.opacity(0.8)).padding(.top, 14)
             }
             .frame(maxWidth: 720)
             .frame(maxWidth: .infinity)
+        }
+    }
+
+    private func color(_ rating: Rating) -> Color {
+        switch rating {
+        case .again: return Theme.red
+        case .hard: return Color(red: 0.85, green: 0.55, blue: 0.2)
+        case .good: return Theme.accent
+        case .easy: return Color(red: 0.25, green: 0.5, blue: 0.85)
         }
     }
 }
@@ -359,7 +437,7 @@ struct ResultsView: View {
             VStack(spacing: 8) {
                 Text(score >= 80 ? "🏆" : score >= 60 ? "💪" : "📚").font(.system(size: 40))
                 Text("\(score)%").font(.system(size: 34, weight: .heavy)).foregroundStyle(Theme.accent)
-                Text("\(session.knewCount) knew · \(missed.count) to practice · \(session.deck.count) total")
+                Text("\(session.knewCount) recalled · \(session.shakyCards.count) shaky · \(missed.count) forgot · \(session.deck.count) total")
                     .foregroundStyle(Theme.muted)
                 HStack(spacing: 9) {
                     if !missed.isEmpty {
@@ -379,9 +457,12 @@ struct ResultsView: View {
             .panel(radius: 18)
             .padding(.bottom, 9)
 
-            ForEach(missed) { card in
+            ForEach(missed + session.shakyCards) { card in
+                let shaky = session.results[card.id] == .hard
                 VStack(alignment: .leading, spacing: 7) {
-                    Text(card.topic).font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.red)
+                    Text((shaky ? "😬 Shaky · " : "❌ Forgot · ") + card.topic)
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(shaky ? Color(red: 0.85, green: 0.55, blue: 0.2) : Theme.red)
                     Text(card.question).font(.system(size: 14, weight: .bold))
                     Text(card.answer.isEmpty ? "No answer provided." : card.answer)
                         .font(.system(size: 13)).foregroundStyle(Theme.muted).lineSpacing(4)
@@ -402,6 +483,32 @@ struct ResultsView: View {
 struct SettingsView: View {
     @AppStorage(StudySession.folderKey) private var folder = ""
     @Environment(StudySession.self) private var session
+    @Environment(ProgressStore.self) private var store
+
+    private func slotTime(_ index: Int, _ path: WritableKeyPath<StudySlot, Int>) -> Binding<Date> {
+        Binding(
+            get: {
+                let minute = store.data.slots[index][keyPath: path]
+                return Calendar.current.date(bySettingHour: minute / 60, minute: minute % 60, second: 0, of: Date()) ?? Date()
+            },
+            set: { date in
+                let c = Calendar.current.dateComponents([.hour, .minute], from: date)
+                store.data.slots[index][keyPath: path] = (c.hour ?? 0) * 60 + (c.minute ?? 0)
+                session.onPlanChanged?()
+            })
+    }
+
+    private func slotBinding<V>(_ index: Int, _ path: WritableKeyPath<StudySlot, V>) -> Binding<V> {
+        Binding(
+            get: { store.data.slots[index][keyPath: path] },
+            set: { store.data.slots[index][keyPath: path] = $0; session.onPlanChanged?() })
+    }
+
+    private func minutes(_ category: String) -> Binding<Int> {
+        Binding(
+            get: { CardTiming.minutes(for: category, overrides: store.data.categoryMinutes) },
+            set: { store.data.categoryMinutes[category] = $0 })
+    }
 
     var body: some View {
         Form {
@@ -420,9 +527,91 @@ struct SettingsView: View {
                 Text("The app looks for InterviewPrepare.xlsx (or Interview Prepare.xlsx) in this folder. It only reads the workbook and never writes to it.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
+
+            Section {
+                ForEach(store.data.slots.indices, id: \.self) { i in
+                    let slot = store.data.slots[i]
+                    HStack(spacing: 10) {
+                        Toggle("", isOn: slotBinding(i, \.enabled)).labelsHidden()
+                        Text("\(slot.emoji) \(slot.name)").frame(width: 110, alignment: .leading)
+                        DatePicker("", selection: slotTime(i, \.start), displayedComponents: .hourAndMinute).labelsHidden()
+                        Text("–")
+                        DatePicker("", selection: slotTime(i, \.end), displayedComponents: .hourAndMinute).labelsHidden()
+                        Picker("", selection: slotBinding(i, \.focus)) {
+                            ForEach(SlotFocus.allCases, id: \.self) { Text($0.label).tag($0) }
+                        }
+                        .labelsHidden()
+                        .frame(width: 190)
+                    }
+                    .disabled(false)
+                    .opacity(slot.enabled ? 1 : 0.5)
+                }
+                HStack {
+                    Button("Rebuild today's targets") { session.rebuildToday() }
+                    Button("Reset to defaults") {
+                        store.data.slots = StudySlot.defaults
+                        session.onPlanChanged?()
+                    }
+                }
+            } header: {
+                Text("Daily sessions")
+            } footer: {
+                Text("Targets are planned when the day starts. After changing sessions, use Rebuild today's targets to re-plan today.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+
+            Section {
+                Stepper("Remind me \(store.data.notifyLeadMinutes) min before each session",
+                        value: Binding(get: { store.data.notifyLeadMinutes },
+                                       set: { store.data.notifyLeadMinutes = $0; session.onPlanChanged?() }),
+                        in: 0...60, step: 5)
+            } header: {
+                Text("Reminders")
+            }
+
+            Section {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Target recall: \(Int((store.data.desiredRetention * 100).rounded()))%")
+                    Slider(value: Binding(get: { store.data.desiredRetention },
+                                          set: { store.data.desiredRetention = ($0 * 100).rounded() / 100; session.onPlanChanged?() }),
+                           in: 0.80...0.97, step: 0.01)
+                }
+            } header: {
+                Text("Memory (FSRS)")
+            } footer: {
+                Text("FSRS schedules each review for when your chance of recalling the card falls to this level. Higher means more reviews and better recall; 90% is the recommended default.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+
+            Section {
+                if session.categories.isEmpty {
+                    Text("Load a workbook to set time per category.").foregroundStyle(.secondary)
+                }
+                ForEach(session.categories, id: \.self) { category in
+                    Stepper("\(category): \(CardTiming.minutes(for: category, overrides: store.data.categoryMinutes)) min",
+                            value: minutes(category), in: 1...60)
+                }
+            } header: {
+                Text("Card timer")
+            } footer: {
+                Text("Time box per card. Defaults: 20 min for program categories, 5 min for Q&A.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+
+            Section {
+                LabeledContent("Saved progress") {
+                    Text(store.fileURL.path)
+                        .lineLimit(2).truncationMode(.middle).textSelection(.enabled)
+                        .frame(maxWidth: 380, alignment: .leading)
+                }
+                Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([store.fileURL]) }
+            } footer: {
+                Text("Study time, timer state and review schedules are kept here, separate from your workbook.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
         }
         .formStyle(.grouped)
-        .frame(width: 560)
+        .frame(width: 700, height: 640)
         .padding(.vertical, 8)
     }
 

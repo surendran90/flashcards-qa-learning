@@ -81,7 +81,7 @@ Use **Refresh** to re-read the OneDrive workbook after editing it. Use **Import 
 1. Choose **All** or select a category.
 2. For a category, optionally set **From** and **To** to practice an inclusive range (for example, 10 through 20). Leave **Shuffle** enabled to randomize within that range, or turn it off to keep workbook order.
 3. Select **Start Practice**.
-4. Read the question, choose **Reveal Answer**, and mark **I knew it** or **Practice again**. You can also skip a question.
+4. Read the question, choose **Reveal Answer**, and mark **I knew it** or **Practice again** (in the Mac app: rate **Again / Hard / Good / Easy**). You can also skip a question.
 5. At the end, review missed questions and retry them, restart the session, or return to the categories.
 
 ## Study workflow
@@ -110,6 +110,58 @@ Then open **FlashCards QA** from Launchpad or Spotlight. It has the same feature
 - **Settings (⌘,)** changes the workbook folder if your OneDrive path moves.
 - In practice mode, **Space** reveals the answer, **K** marks it known, **P** marks it to practice again, **S** skips, and **Esc** ends the session. In study mode, use **←/→**.
 - It follows the system light or dark theme.
+
+### Card timer
+
+Each card in Study and Practice mode has a timer in its top-right corner. It's ready at **5 minutes for Q&A cards** and **20 minutes for C Programs** (any category with "program" in its name). You can change the time for each category in **Settings (⌘,)**.
+
+- Select ▶ (or press **⌥Space**) to start it and ⏸ to pause it. Moving to another card stops the timer, and the next card's timer is ready but not started.
+- When the time runs out, a sound plays and the timer turns red and counts overtime (for example `+1:20`). Move on when you're ready.
+- Time counts as **Studying** in Study mode and **Revising** in Practice, and it is recorded per category and per card. Time while the Mac is asleep isn't counted.
+- After 50 minutes of timed work without a 5-minute pause, the app suggests a 10-minute break.
+- Time is kept after Refresh, Import Excel and quitting. If you quit mid-card, that card's timer continues from the same point when you open it again that day.
+
+### Study plan
+
+Open it with **🗓 Study Plan** or **⌘L**. The plan doesn't use a target date. It sizes each day to the study sessions you set and estimates when you'll finish.
+
+| Session | Default time | Focus |
+|---|---|---|
+| 🌅 Morning | 9:30–12:00 | Learn new cards: read them, then **Test yourself** |
+| 💼 Job search | 12:00–14:30 | Applications and lunch (not counted as study) |
+| ☀️ Afternoon | 14:30–16:30 | Review due cards |
+| 🌙 Evening | 19:30–20:30 | Review due cards the afternoon didn't fit |
+
+You can change times, turn sessions on or off, and set each session's focus in **Settings › Daily sessions**.
+
+- **Targets:** each session gets a target when the day starts, for example "Learn 8 new: C Programs ×2, C QA ×6 · ~70 min". A new card costs its time box. A review costs a fifth of that (1 minute for Q&A, 4 for C programs). Once a category has 10 timed cards, the plan uses your real average time instead. New cards rotate across categories, so C programs don't all pile up at the end.
+- **Missed work carries over:** when a session ends with work left, the rest moves to the next session (or to tomorrow's first session) and is marked "↪ carried". **Busy today (interview / applications)** moves everything left today to tomorrow.
+- **Finish estimate:** **All cards learned by** and **Mastered (3-week memory) by** dates, worked out from your sessions. If you fall behind, the page shows how many days later the date is than it was this morning.
+- **Progress:** overall Learned and Mastered bars, and a New / Learning / Mastered bar for each category.
+- **Next 14 days:** new and review counts for each session, estimated time, and carried work.
+- **Reminders:** a notification arrives 10 minutes before each session (you can change this in Settings), for example "☀️ Afternoon session at 14:30 — revise 14 (C QA 8, Resume QA 6)". Allow notifications for FlashCardsQA when macOS asks, or later in System Settings › Notifications.
+- **Study time:** totals for today, the last 7 days and all time, a 14-day chart, the average time per card by category, and your slowest cards.
+
+### Memory algorithm (FSRS) and ratings
+
+In the Mac app, the plan schedules reviews with **FSRS-5** (Free Spaced Repetition Scheduler), which Anki has used by default since 2023. FSRS tracks each card's **stability** (how long the memory lasts), its **difficulty**, and your **chance of recalling it today**. It schedules the next review for when that chance falls to your target recall (90% by default, adjustable from 80% to 97% in **Settings › Memory**). Easy cards wait longer and hard cards come back sooner. In public benchmarks it predicts recall better than SM-2 (the older Anki/SuperMemo algorithm) and needs fewer reviews for the same recall.
+
+After **Reveal Answer** in Practice, rate how well you recalled the card. Each button shows when you'll see the card next:
+
+| Button | Key | Meaning |
+|---|---|---|
+| ❌ Again | 1 | Forgot. Comes back tomorrow and counts as missed for **Retry missed**. |
+| 😬 Hard | 2 | Recalled with effort. A shorter gap; listed as "shaky" on the results screen. |
+| ✅ Good | 3 | Recalled. (**K** still works.) |
+| ⭐ Easy | 4 | Instant recall. A much longer gap. |
+
+On a first review, the gaps are about 1, 1, 3 and 16 days. A card counts as **Mastered** once FSRS expects you to still recall it three weeks later. It counts as **Weak** after 2 or more lapses, or once FSRS rates it as very difficult; the category progress shows how many weak cards each category has. FSRS already brings weak cards back sooner, so the plan has no separate weak-card practice. Reviews saved before FSRS are converted automatically, and their due dates stay the same.
+
+**What updates the schedule:** only answers to **new** cards, cards that are **due**, or cards already reviewed **today** (such as **Retry missed** and **Quick recall**) change a card's schedule. If you practise a card that isn't due yet, for example from a category on the start screen, it's **practice only**: the time still counts as revising, but its due date doesn't change, and the card says so after you reveal the answer. A new card counts toward a session only after you rate it in **Test yourself**; reading it in Study mode isn't enough.
+
+For C Programs, Practice reminds you to write the code yourself before revealing the answer, because producing an answer from memory helps it stick. The plan page has a short explanation and job-hunt tips under "Why this plan works".
+
+Progress is saved in `~/Library/Application Support/FlashCardsQA/progress.json`, separate from your workbook. The workbook is still only read, never written. Cards are matched by their question text, so their history survives Refresh, Import, reordered rows and renamed tabs.
 
 Notes:
 

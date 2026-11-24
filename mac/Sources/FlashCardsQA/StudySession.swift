@@ -2,12 +2,23 @@ import FlashCardsCore
 import Foundation
 import Observation
 
-enum Mode { case start, study, running, done }
+enum Mode { case start, study, running, done, plan }
 
-/// App state. A direct port of the state and handlers in `src/App.js`.
+/// App state. A port of the state and handlers in `src/App.js`, plus study-plan entry points.
 @MainActor @Observable
 final class StudySession {
     static let folderKey = "workbookFolder"
+
+    let progress: ProgressStore
+    let clock = DayClock()
+    /// What the Pomodoro timer credits time to; follows the last study/practice mode.
+    private(set) var lastActivity: Activity = .study
+    /// True when the current study deck came from "Learn new", so its end offers a self-test.
+    private(set) var studyingNewCards = false
+
+    init(progress: ProgressStore) {
+        self.progress = progress
+    }
 
     var cards: [Card] = []
     var categories: [String] = []
@@ -16,11 +27,19 @@ final class StudySession {
     var shuffle = true
     var rangeFrom = "1"
     var rangeTo = ""
-    var mode: Mode = .start
+    var mode: Mode = .start {
+        didSet {
+            switch mode {
+            case .study: lastActivity = .study
+            case .running, .done: lastActivity = .revise
+            default: break
+            }
+        }
+    }
     var deck: [Card] = []
     var index = 0
     var flipped = false
-    var results: [String: Bool] = [:]
+    var results: [String: Rating] = [:]
     var status = ""
     var statusIsError = false
     private var statusToken = 0
@@ -49,9 +68,17 @@ final class StudySession {
         return e - s + 1
     }
     var canStart: Bool { !loading && !filtered.isEmpty && rangeValid }
-    var knewCount: Int { results.values.filter { $0 }.count }
-    var missedCount: Int { results.values.filter { !$0 }.count }
-    var missedCards: [Card] { deck.filter { results[$0.id] == false } }
+    var knewCount: Int { results.values.filter { $0 != .again }.count }
+    var missedCount: Int { results.values.filter { $0 == .again }.count }
+    var missedCards: [Card] { deck.filter { results[$0.id] == .again } }
+    /// Recalled with effort; worth a quick second look.
+    var shakyCards: [Card] { deck.filter { results[$0.id] == .hard } }
+
+    /// Days until the next review for each rating of the current card.
+    var ratingPreview: [Rating: Int] {
+        guard let card = current, isScheduled(card) else { return [:] }
+        return FSRS.preview(review(for: card), today: today, retention: progress.data.desiredRetention, clock: clock)
+    }
     var current: Card? { deck.indices.contains(index) ? deck[index] : nil }
 
     private var pool: [Card] {
@@ -101,6 +128,8 @@ final class StudySession {
             ? " (no tabs with QA in cell A1 were found)"
             : " from \(r.loadedSheets.joined(separator: ", "))"
         let dupes = r.duplicatesSkipped > 0 ? " \(r.duplicatesSkipped) repeated questions were skipped." : ""
+        ensureToday()
+        onPlanChanged?()
         setStatus("Loaded \(r.cards.count) questions from \(source)\(sheets).\(dupes)")
     }
 
@@ -121,7 +150,13 @@ final class StudySession {
     // MARK: Actions
 
     func reset() {
-        mode = .start; deck = []; index = 0; flipped = false; results = [:]
+        mode = .start; deck = []; index = 0; flipped = false; results = [:]; studyingNewCards = false
+    }
+
+    /// Category the timer credits: the card on screen, else the selected topic.
+    var timeCategory: String {
+        if mode == .study || mode == .running, let card = current { return card.topic }
+        return topic
     }
 
     func setFilter(_ value: String) {
@@ -134,23 +169,184 @@ final class StudySession {
     func start(retryWrong: Bool) {
         let source = retryWrong ? missedCards : pool
         guard !source.isEmpty, retryWrong || rangeValid else { return }
-        deck = shuffle ? source.shuffled() : source
-        index = 0; flipped = false
-        if !retryWrong { results = [:] }
-        mode = .running
+        beginPractice(shuffle ? source.shuffled() : source, keepResults: retryWrong)
     }
 
     func startStudy() {
         guard canStart else { return }
-        deck = pool
-        index = 0
+        beginStudy(pool, newCards: false)
+    }
+
+    private func beginPractice(_ cards: [Card], keepResults: Bool = false) {
+        guard !cards.isEmpty else { return }
+        deck = cards
+        index = 0; flipped = false
+        if !keepResults { results = [:] }
+        studyingNewCards = false
+        mode = .running
+    }
+
+    private func beginStudy(_ cards: [Card], newCards: Bool) {
+        guard !cards.isEmpty else { return }
+        deck = cards
+        index = 0; flipped = false; results = [:]
+        studyingNewCards = newCards
         mode = .study
     }
 
-    func answer(_ knew: Bool) {
+    func answer(_ rating: Rating) {
         guard let card = current else { return }
-        results[card.id] = knew
+        results[card.id] = rating
+        recordReview(card, rating: rating)
         advance()
+    }
+
+    // MARK: Study plan (sessions)
+
+    var today: String { clock.key(Date()) }
+    var nowMinute: Int { clock.minuteOfDay(Date()) }
+    /// Bumped every minute by the app so time-based views (session status) refresh.
+    var minuteTick = 0
+    /// Called after targets change, so session reminders can be rescheduled.
+    @ObservationIgnored var onPlanChanged: (() -> Void)?
+
+    var plan: StudyPlan { progress.data.plan }
+
+    /// Cards in the plan's categories (all when none are chosen), in workbook order.
+    var planCards: [Card] {
+        let chosen = Set(plan.categories)
+        return cards.filter { chosen.isEmpty || chosen.contains($0.topic) }
+    }
+    var planScope: [PlanCard] { planCards.map { PlanCard(key: $0.key, topic: $0.topic) } }
+
+    func review(for card: Card) -> CardReview? { progress.data.cards[card.key] }
+
+    var dueCards: [Card] {
+        let day = today
+        return planCards.filter { SpacedRepetition.isDue(review(for: $0), on: day) }
+    }
+    var weakCards: [Card] { planCards.filter { SpacedRepetition.isWeak(review(for: $0)) } }
+    var newCards: [Card] { planCards.filter { review(for: $0) == nil } }
+    var todaysNewCards: [Card] { let d = today; return planCards.filter { review(for: $0)?.introducedDay == d } }
+
+    var allSlots: [StudySlot] { progress.data.slots.filter(\.enabled).sorted { $0.start < $1.start } }
+    var studySlots: [StudySlot] { SessionPlanner.studySlots(progress.data.slots) }
+
+    func cards(for keys: [String]) -> [Card] {
+        let byKey = Dictionary(cards.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
+        return keys.compactMap { byKey[$0] }
+    }
+
+    func target(for slot: StudySlot) -> SlotTarget {
+        progress.data.dayTargets[today]?.slots[slot.id] ?? SlotTarget()
+    }
+
+    func status(for slot: StudySlot) -> SlotStatus {
+        _ = minuteTick
+        return SessionPlanner.status(of: slot, on: today, data: progress.data, nowMinute: nowMinute)
+    }
+
+    func isDoneToday(_ key: String) -> Bool { progress.data.isDone(key, on: today) }
+
+    /// Keys of a session still to do today.
+    func remaining(_ slot: StudySlot) -> (new: [String], review: [String]) {
+        let t = target(for: slot)
+        if t.skipped || t.rolledOver { return ([], []) }
+        return (t.newKeys.filter { !isDoneToday($0) }, t.reviewKeys.filter { !isDoneToday($0) })
+    }
+
+    /// Today's remaining planned work across sessions.
+    var todayRemaining: (new: Int, review: Int) {
+        studySlots.reduce((0, 0)) { sum, slot in
+            let r = remaining(slot)
+            return (sum.0 + r.new.count, sum.1 + r.review.count)
+        }
+    }
+
+    func forecast(days: Int = 14) -> Forecast {
+        _ = minuteTick
+        return SessionPlanner.forecast(progress.data, cards: planScope, today: today, nowMinute: nowMinute, days: days, clock: clock)
+    }
+
+    /// Locks today's targets, carries over missed days and ended sessions.
+    func ensureToday() {
+        guard !cards.isEmpty else { return }
+        var data = progress.data
+        SessionPlanner.catchUp(&data, today: today, clock: clock)
+        SessionPlanner.lockDay(&data, cards: planScope, day: today, clock: clock)
+        SessionPlanner.rollOver(&data, day: today, nowMinute: nowMinute, clock: clock)
+        if data != progress.data {
+            progress.data = data
+            onPlanChanged?()
+        }
+    }
+
+    /// Re-plans today's sessions (after changing session times or categories). Carried work is kept.
+    func rebuildToday() {
+        guard var dt = progress.data.dayTargets[today] else { ensureToday(); return }
+        let carried = dt.slots.values.flatMap(\.carriedKeys).filter { !isDoneToday($0) }
+        dt.carryInNew += carried.filter { progress.data.cards[$0] == nil }
+        dt.carryInReview += carried.filter { progress.data.cards[$0] != nil }
+        dt.slots = [:]
+        dt.locked = false
+        progress.data.dayTargets[today] = dt
+        ensureToday()
+    }
+
+    /// "Busy today": move the rest of today's targets to tomorrow.
+    func busyToday() {
+        var data = progress.data
+        SessionPlanner.skipRest(&data, day: today, clock: clock)
+        progress.data = data
+        onPlanChanged?()
+    }
+
+    /// Whether an answer to this card updates its FSRS schedule: new cards, due cards, and
+    /// cards already reviewed today (same-day retries). Other cards are "practice only".
+    func isScheduled(_ card: Card) -> Bool {
+        guard let r = review(for: card) else { return true }
+        return r.dueDay <= today || r.lastReviewed == today
+    }
+
+    private func recordReview(_ card: Card, rating: Rating) {
+        guard isScheduled(card) else { return }
+        let key = card.key
+        progress.data.cards[key] = FSRS.review(
+            progress.data.cards[key], rating: rating, topic: card.topic, today: today,
+            retention: progress.data.desiredRetention, clock: clock)
+        markDone(card)
+    }
+
+    private func markDone(_ card: Card) {
+        progress.data.markDone(card.key, on: today)
+        onPlanChanged?()
+    }
+
+    func openPlan() {
+        reset()
+        ensureToday()
+        mode = .plan
+    }
+
+    /// Starts a session: new cards are studied first (then self-tested), reviews are practised mixed.
+    func startSession(_ slot: StudySlot) {
+        let r = remaining(slot)
+        let newOnes = cards(for: r.new)
+        if !newOnes.isEmpty {
+            beginStudy(newOnes, newCards: true)
+        } else {
+            beginPractice(cards(for: r.review).shuffled())
+        }
+    }
+
+    func startSessionReviews(_ slot: StudySlot) { beginPractice(cards(for: remaining(slot).review).shuffled()) }
+
+    func startQuickRecall() { beginPractice(todaysNewCards.shuffled()) }
+
+    /// From the end of a study deck: practise the same cards. New cards count as done only
+    /// once rated here, which also gives them their first FSRS schedule.
+    func testStudiedCards() {
+        beginPractice(deck.shuffled())
     }
 
     func skip() { advance() }
@@ -160,5 +356,7 @@ final class StudySession {
     }
 
     func previous() { index = max(0, index - 1) }
-    func next() { index = min(deck.count - 1, index + 1) }
+    func next() {
+        index = min(deck.count - 1, index + 1)
+    }
 }
