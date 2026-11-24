@@ -35,6 +35,7 @@ struct PlanView: View {
                     .foregroundStyle(Theme.muted).padding(24).frame(maxWidth: .infinity).panel()
             } else {
                 OverviewPanel()
+                AlgorithmPanel()
                 TodayPanel()
                 UpcomingPanel()
                 CategoryProgressPanel()
@@ -175,6 +176,44 @@ private struct CategoryPicker: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - Algorithm
+
+private struct AlgorithmPanel: View {
+    @Environment(ProgressStore.self) private var store
+
+    var body: some View {
+        let target = Int((store.data.desiredRetention * 100).rounded())
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline) {
+                SectionTitle(text: "How your reviews are scheduled")
+                Spacer()
+                SettingsLink { Text("Change target recall…").font(.system(size: 12, weight: .semibold)) }
+            }
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text("🧠 FSRS-5").font(.system(size: 18, weight: .heavy))
+                Text("Free Spaced Repetition Scheduler — the default in Anki since 2023 · target recall \(target)%")
+                    .font(.system(size: 12)).foregroundStyle(Theme.muted)
+            }
+            VStack(alignment: .leading, spacing: 5) {
+                line("Memory model", "each card has its own stability (how long you'll remember it), difficulty, and chance of recall today.")
+                line("Next review", "set for the day your chance of recall drops to \(target)% — easy cards wait longer, hard ones return sooner.")
+                line("Your ratings", "❌ Again (forgot) · 😬 Hard · ✅ Good · ⭐ Easy. ✓ Already studied counts as Easy.")
+                line("Practice only", "answering a card that isn't due yet doesn't change its schedule.")
+                line("Mastered", "when FSRS expects you to still recall the card three weeks later.")
+            }
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .panel()
+    }
+
+    private func line(_ title: String, _ text: String) -> some View {
+        (Text(title + ": ").bold() + Text(text))
+            .font(.system(size: 12)).foregroundStyle(Theme.ink)
+            .fixedSize(horizontal: false, vertical: true)
     }
 }
 

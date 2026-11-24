@@ -16,6 +16,17 @@ enum Theme {
     /// Primary dark button fill (stays dark-ish in both themes).
     static let inkButton = dynamic(light: 0x20211F, dark: 0x44463F)
 
+    /// C program categories are shown in a code font.
+    static func isCode(_ topic: String) -> Bool { topic.lowercased().contains("program") }
+
+    static func questionFont(_ topic: String, size: CGFloat = 19) -> Font {
+        isCode(topic) ? .system(size: size - 2, weight: .bold, design: .monospaced) : .system(size: size, weight: .bold)
+    }
+
+    static func answerFont(_ topic: String, size: CGFloat = 14) -> Font {
+        isCode(topic) ? .system(size: size - 1, design: .monospaced) : .system(size: size)
+    }
+
     private static func dynamic(light: UInt32, dark: UInt32) -> Color {
         Color(nsColor: NSColor(name: nil) { appearance in
             let hex = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light

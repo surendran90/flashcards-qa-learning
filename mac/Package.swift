@@ -6,10 +6,11 @@ let package = Package(
     platforms: [.macOS(.v14)],
     dependencies: [
         .package(url: "https://github.com/CoreOffice/CoreXLSX.git", from: "0.14.2"),
+        .package(url: "https://github.com/weichsel/ZIPFoundation.git", from: "0.9.19"),
     ],
     targets: [
-        .target(name: "FlashCardsCore", dependencies: ["CoreXLSX"]),
+        .target(name: "FlashCardsCore", dependencies: ["CoreXLSX", "ZIPFoundation"]),
         .executableTarget(name: "FlashCardsQA", dependencies: ["FlashCardsCore"]),
-        .testTarget(name: "FlashCardsCoreTests", dependencies: ["FlashCardsCore"]),
+        .testTarget(name: "FlashCardsCoreTests", dependencies: ["FlashCardsCore", "ZIPFoundation"]),
     ]
 )

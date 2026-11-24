@@ -5,6 +5,8 @@ public struct LoadedWorkbook: Sendable {
     public let result: ParseResult
     public let fileName: String
     public let sheetNames: [String]
+    /// The file the cards were read from (edits are written back here).
+    public let url: URL
 }
 
 public enum WorkbookLoaderError: LocalizedError {
@@ -50,7 +52,8 @@ public enum WorkbookLoader {
         return LoadedWorkbook(
             result: WorkbookParser.parse(sheets),
             fileName: url.lastPathComponent,
-            sheetNames: sheets.map(\.name))
+            sheetNames: sheets.map(\.name),
+            url: url)
     }
 
     static func readSheets(url: URL) throws -> [SheetData] {
@@ -68,7 +71,7 @@ public enum WorkbookLoader {
                 }
                 for (name, path) in pairs {
                     let worksheet = try file.parseWorksheet(at: path)
-                    sheets.append(sheetData(name: name ?? path, worksheet: worksheet, shared: shared))
+                    sheets.append(sheetData(name: name ?? path, path: path, worksheet: worksheet, shared: shared))
                 }
             }
             return sheets
@@ -97,9 +100,10 @@ public enum WorkbookLoader {
         }
     }
 
-    static func sheetData(name: String, worksheet: Worksheet, shared: SharedStrings?) -> SheetData {
+    static func sheetData(name: String, path: String? = nil, worksheet: Worksheet, shared: SharedStrings?) -> SheetData {
         var a1 = ""
         var rows: [[String]] = []
+        var rowNumbers: [Int] = []
         let xmlRows = (worksheet.data?.rows ?? []).sorted { $0.reference < $1.reference }
         for row in xmlRows {
             var values: [String] = []
@@ -111,8 +115,11 @@ public enum WorkbookLoader {
                 if values.count <= col { values.append(contentsOf: repeatElement("", count: col - values.count + 1)) }
                 values[col] = value
             }
-            if values.contains(where: { !$0.isEmpty }) { rows.append(values) }
+            if values.contains(where: { !$0.isEmpty }) {
+                rows.append(values)
+                rowNumbers.append(Int(row.reference))
+            }
         }
-        return SheetData(name: name, a1: a1, rows: rows)
+        return SheetData(name: name, a1: a1, rows: rows, rowNumbers: rowNumbers, path: path)
     }
 }

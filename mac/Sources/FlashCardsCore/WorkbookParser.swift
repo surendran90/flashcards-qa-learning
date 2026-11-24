@@ -7,15 +7,27 @@ public struct Card: Identifiable, Hashable, Sendable {
     public let question: String
     public let answer: String
     public let sourceSheet: String
+    /// Position among the sheet's non-blank rows (1-based), as in the web app.
     public let sourceRow: Int
+    /// Where the card lives in the workbook, for editing: real Excel row (1-based),
+    /// 0-based question/answer columns, and the sheet's XML path inside the .xlsx.
+    public let excelRow: Int
+    public let questionColumn: Int
+    public let answerColumn: Int
+    public let sheetPath: String?
 
-    public init(id: String, topic: String, question: String, answer: String, sourceSheet: String, sourceRow: Int) {
+    public init(id: String, topic: String, question: String, answer: String, sourceSheet: String, sourceRow: Int,
+                excelRow: Int? = nil, questionColumn: Int = 0, answerColumn: Int = 1, sheetPath: String? = nil) {
         self.id = id
         self.topic = topic
         self.question = question
         self.answer = answer
         self.sourceSheet = sourceSheet
         self.sourceRow = sourceRow
+        self.excelRow = excelRow ?? sourceRow
+        self.questionColumn = questionColumn
+        self.answerColumn = answerColumn
+        self.sheetPath = sheetPath
     }
 }
 
@@ -25,11 +37,17 @@ public struct SheetData: Sendable {
     public let name: String
     public let a1: String
     public let rows: [[String]]
+    /// Real Excel row number (1-based) for each entry in `rows`.
+    public let rowNumbers: [Int]
+    /// The worksheet's XML path inside the .xlsx (for writing).
+    public let path: String?
 
-    public init(name: String, a1: String, rows: [[String]]) {
+    public init(name: String, a1: String, rows: [[String]], rowNumbers: [Int]? = nil, path: String? = nil) {
         self.name = name
         self.a1 = a1
         self.rows = rows
+        self.rowNumbers = rowNumbers ?? (0..<rows.count).map { $0 + 1 }
+        self.path = path
     }
 }
 
@@ -121,9 +139,11 @@ public enum WorkbookParser {
                 func cell(_ i: Int) -> String { i < row.count ? row[i] : "" }
                 let question = trimmed(cell(questionColumn))
                 var answer = trimmed(cell(answerColumn))
+                var resolvedAnswerColumn = answerColumn
                 if answer.isEmpty && headerIndex < 0 && answerColumn + 1 < row.count {
-                    if let next = row[(answerColumn + 1)...].first(where: { !trimmed($0).isEmpty }) {
-                        answer = trimmed(next)
+                    if let next = row.indices.dropFirst(answerColumn + 1).first(where: { !trimmed(row[$0]).isEmpty }) {
+                        answer = trimmed(row[next])
+                        resolvedAnswerColumn = next
                     }
                 }
                 if question.isEmpty || question.lowercased() == "question" { continue }
@@ -140,7 +160,11 @@ public enum WorkbookParser {
                     question: question,
                     answer: answer,
                     sourceSheet: sheet.name,
-                    sourceRow: rowNumber))
+                    sourceRow: rowNumber,
+                    excelRow: firstDataRow + offset < sheet.rowNumbers.count ? sheet.rowNumbers[firstDataRow + offset] : rowNumber,
+                    questionColumn: questionColumn,
+                    answerColumn: resolvedAnswerColumn,
+                    sheetPath: sheet.path))
                 seen.insert(key)
             }
         }

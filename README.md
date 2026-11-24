@@ -16,7 +16,7 @@ FlashCards QA Learning turns your interview Q&A workbook into a focused flashcar
 2. The app reads only worksheets whose A1 cell contains `QA`. Each accepted worksheet becomes a category named exactly after its tab.
 3. Questions and answers are read from the worksheet rows below the A1 marker. Write each question in column A and its answer in column B, leaving the marker in A1. Repeated question text is skipped so the same question does not appear more than once in the bank.
 4. Choose a category and optionally select a question range. Select **Study** to see each question with its answer, or **Start Practice** to reveal answers and mark whether you knew them.
-5. The app tracks results for the session and lets you retry the questions you missed. Cards are read-only in the app; it never writes changes to the OneDrive workbook.
+5. The app tracks results for the session and lets you retry the questions you missed. Cards are read-only in the web app; it never writes changes to the OneDrive workbook. (The Mac app can edit questions; see [Editing questions](#editing-questions).)
 6. Use **Refresh** after changing the workbook in Excel to load its latest tabs and content. A manually imported workbook replaces the current in-app bank for that session; its edits are not written back to the configured OneDrive workbook.
 
 ## Use cases
@@ -64,7 +64,7 @@ You only need to run `npm install` once for this folder. Later, run `npm start` 
 | Refresh | Re-read the configured OneDrive workbook so Excel edits and removals appear in the app. |
 | Flashcards | Show a question first, reveal its answer when ready, then mark whether you knew it or need more practice. |
 | Study | Show the question and answer together, with Previous and Next navigation through the selected cards. |
-| Read-only workbook | The app reads the configured workbook and does not write to it. |
+| Read-only workbook | The web app reads the configured workbook and does not write to it. The Mac app can edit it. |
 | Question range | In a category, choose inclusive **From** and **To** question numbers to practice only that slice. |
 | Shuffle | Randomize question order within the selected practice set. |
 | Results | See your score and review the questions marked for more practice. |
@@ -92,7 +92,7 @@ Use **Refresh** to re-read the OneDrive workbook after editing it. Use **Import 
 
 ## Data storage
 
-The workbook remains the source of truth. On launch and when you select **Refresh**, the app reads the configured local OneDrive file through its local-only service. Cards cannot be edited in the app, and neither OneDrive-loaded nor manually imported workbook data is written back to any workbook.
+The workbook remains the source of truth. On launch and when you select **Refresh**, the app reads the configured local OneDrive file through its local-only service. Cards cannot be edited in the web app, and neither OneDrive-loaded nor manually imported workbook data is written back to any workbook.
 
 ## Mac app
 
@@ -161,7 +161,30 @@ On a first review, the gaps are about 1, 1, 3 and 16 days. A card counts as **Ma
 
 For C Programs, Practice reminds you to write the code yourself before revealing the answer, because producing an answer from memory helps it stick. The plan page has a short explanation and job-hunt tips under "Why this plan works".
 
-Progress is saved in `~/Library/Application Support/FlashCardsQA/progress.json`, separate from your workbook. The workbook is still only read, never written. Cards are matched by their question text, so their history survives Refresh, Import, reordered rows and renamed tabs.
+Progress is saved in `~/Library/Application Support/FlashCardsQA/progress.json`, separate from your workbook. Cards are matched by their question text, so their history survives Refresh, Import, reordered rows and renamed tabs. If you edit a question's text in the app, its history moves with it.
+
+### Already studied
+
+In Study mode, cards you haven't practised yet have a **✓ Already studied** button (key **A**). Use it for cards you already know from before. The card counts as done for today's session, gets an FSRS **Easy** first review (it comes back in about 16 days), and is left out of the **Test yourself** round.
+
+### Editing questions
+
+Select a category on the main page. Below **Study / Start Practice**, a **Questions (N)** section lists that category's questions. It is collapsed by default; select it to expand it.
+
+- **Reorder:** drag a question by its ≡ handle onto another position. The rows move in Excel, including any extra columns such as an ID.
+- **View and edit:** select a question to see its answer, then **✏️ Edit**. Changes save automatically about 1.5 seconds after you stop typing, and when you select **Done**.
+- **Add:** **＋ Add question** adds a new row at the end of that category's sheet.
+- **Delete:** **🗑 Delete** asks for confirmation, then removes the row and moves the rows below it up.
+
+Changes are written straight to the workbook the questions came from: the OneDrive file, or a workbook you imported. The study plan updates straight away: new questions become new cards, deleted ones drop out, and edited ones keep their review history. Duplicate questions aren't allowed.
+
+**Safety:**
+- **Backups:** before saving, the app copies the workbook to `~/Library/Application Support/FlashCardsQA/backups/` (at most one copy every 5 minutes; the last 30 are kept).
+- **Workbook open in Excel:** the app doesn't save while the workbook is open in Excel. It shows a message and saves automatically once you close the file there.
+- **What changes:** only the edited sheet's question and answer cells change. Edited cells are saved as plain text; other sheets and formatting are kept.
+- **File type:** only `.xlsx` files can be edited.
+
+C Programs questions and answers are shown in a code font everywhere in the Mac app.
 
 Notes:
 

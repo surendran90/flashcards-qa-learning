@@ -344,4 +344,25 @@ public struct ProgressData: Codable, Equatable, Sendable {
     public mutating func markDone(_ key: String, on day: String) {
         if !isDone(key, on: day) { dayDone[day, default: []].append(key) }
     }
+
+    /// Moves everything stored under a card key to a new key (the question text was edited).
+    public mutating func renameCard(from old: String, to new: String) {
+        guard old != new else { return }
+        func swap(_ keys: [String]) -> [String] { keys.map { $0 == old ? new : $0 } }
+        if let r = cards.removeValue(forKey: old) { cards[new] = r }
+        if let s = cardSeconds.removeValue(forKey: old) { cardSeconds[new, default: 0] += s }
+        if activeCard?.key == old { activeCard?.key = new }
+        for (day, keys) in dayDone where keys.contains(old) { dayDone[day] = swap(keys) }
+        for (day, var dt) in dayTargets {
+            for (id, var t) in dt.slots {
+                t.newKeys = swap(t.newKeys)
+                t.reviewKeys = swap(t.reviewKeys)
+                t.carriedKeys = swap(t.carriedKeys)
+                dt.slots[id] = t
+            }
+            dt.carryInNew = swap(dt.carryInNew)
+            dt.carryInReview = swap(dt.carryInReview)
+            dayTargets[day] = dt
+        }
+    }
 }

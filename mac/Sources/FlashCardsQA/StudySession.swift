@@ -15,6 +15,17 @@ final class StudySession {
     private(set) var lastActivity: Activity = .study
     /// True when the current study deck came from "Learn new", so its end offers a self-test.
     private(set) var studyingNewCards = false
+    /// Cards marked "Already studied" in the current study deck (skipped by "Test yourself").
+    private var alreadyStudied = Set<String>()
+
+    // Editing the workbook
+    /// The workbook the cards came from; edits are saved back to it.
+    private(set) var sourceURL: URL?
+    var editStatus = ""
+    var editStatusIsError = false
+    /// A save waiting for Excel to close the file.
+    @ObservationIgnored var pendingEdit: EditOp?
+    @ObservationIgnored var retryTask: Task<Void, Never>?
 
     init(progress: ProgressStore) {
         self.progress = progress
@@ -45,6 +56,8 @@ final class StudySession {
     private var statusToken = 0
 
     var folder: String {
+        // FLASHCARDSQA_WORKBOOK_DIR lets testing use a copy instead of your real workbook.
+        if let dir = ProcessInfo.processInfo.environment["FLASHCARDSQA_WORKBOOK_DIR"], !dir.isEmpty { return dir }
         let saved = UserDefaults.standard.string(forKey: Self.folderKey) ?? ""
         return saved.isEmpty ? WorkbookLoader.defaultFolder : saved
     }
@@ -119,6 +132,7 @@ final class StudySession {
 
     private func apply(_ loaded: LoadedWorkbook, source: String) {
         let r = loaded.result
+        sourceURL = loaded.url
         cards = r.cards
         categories = r.loadedSheets
         topic = "All"
@@ -191,6 +205,7 @@ final class StudySession {
         deck = cards
         index = 0; flipped = false; results = [:]
         studyingNewCards = newCards
+        alreadyStudied = []
         mode = .study
     }
 
@@ -346,7 +361,21 @@ final class StudySession {
     /// From the end of a study deck: practise the same cards. New cards count as done only
     /// once rated here, which also gives them their first FSRS schedule.
     func testStudiedCards() {
-        beginPractice(deck.shuffled())
+        let rest = deck.filter { !alreadyStudied.contains($0.id) }
+        if rest.isEmpty { reset(); return }
+        beginPractice(rest.shuffled())
+    }
+
+    /// "Already studied": the card is known from before, so it gets an FSRS Easy first review
+    /// (next review in about 16 days) and counts as done for today's session.
+    func markAlreadyStudied() {
+        guard let card = current, review(for: card) == nil else { return }
+        progress.data.cards[card.key] = FSRS.review(
+            nil, rating: .easy, topic: card.topic, today: today,
+            retention: progress.data.desiredRetention, clock: clock)
+        markDone(card)
+        alreadyStudied.insert(card.id)
+        if index + 1 < deck.count { index += 1 } else { testStudiedCards() }
     }
 
     func skip() { advance() }

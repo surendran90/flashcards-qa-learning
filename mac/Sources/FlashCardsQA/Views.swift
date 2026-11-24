@@ -190,6 +190,10 @@ struct StartView: View {
             .padding(24)
             .panel()
 
+            if session.topic != "All" {
+                QuestionListView(topic: session.topic).id(session.topic)
+            }
+
             if session.cards.isEmpty && !session.loading {
                 Text("The app loads the configured OneDrive workbook on launch. It imports tabs whose cell A1 contains “QA”; use Refresh after editing that workbook.")
                     .font(.system(size: 14)).foregroundStyle(Theme.muted)
@@ -276,7 +280,7 @@ private struct CardView: View {
                 .background(Theme.accentSoft, in: Capsule())
                 .padding(.bottom, 18)
             Text(card.question)
-                .font(.system(size: 19, weight: .bold)).lineSpacing(5)
+                .font(Theme.questionFont(card.topic)).lineSpacing(5)
                 .multilineTextAlignment(centered ? .center : .leading)
                 .textSelection(.enabled)
             if showAnswer {
@@ -286,7 +290,7 @@ private struct CardView: View {
                     if card.answer.isEmpty {
                         Text("No answer provided.").italic().foregroundStyle(Theme.muted)
                     } else {
-                        Text(card.answer).font(.system(size: 14)).lineSpacing(6).textSelection(.enabled)
+                        Text(card.answer).font(Theme.answerFont(card.topic)).lineSpacing(6).textSelection(.enabled)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -322,6 +326,12 @@ struct StudyView: View {
                         .disabled(session.index == 0)
                         .keyboardShortcut(.leftArrow, modifiers: [])
                     Spacer()
+                    if session.review(for: card) == nil {
+                        Button("✓ Already studied") { session.markAlreadyStudied() }
+                            .buttonStyle(OutlineButtonStyle())
+                            .keyboardShortcut("a", modifiers: [])
+                            .help("You know this card already: it skips today's test and comes back for review in about 16 days (A)")
+                    }
                     if session.index == session.deck.count - 1 {
                         // Retrieval practice: finish a study pass by testing yourself.
                         Button("✍️ Test yourself on these (\(session.deck.count))") { session.testStudiedCards() }
@@ -463,9 +473,10 @@ struct ResultsView: View {
                     Text((shaky ? "😬 Shaky · " : "❌ Forgot · ") + card.topic)
                         .font(.system(size: 11, weight: .bold))
                         .foregroundStyle(shaky ? Color(red: 0.85, green: 0.55, blue: 0.2) : Theme.red)
-                    Text(card.question).font(.system(size: 14, weight: .bold))
+                    Text(card.question).font(Theme.questionFont(card.topic, size: 14))
                     Text(card.answer.isEmpty ? "No answer provided." : card.answer)
-                        .font(.system(size: 13)).foregroundStyle(Theme.muted).lineSpacing(4)
+                        .font(Theme.answerFont(card.topic, size: 13))
+                        .foregroundStyle(Theme.muted).lineSpacing(4)
                 }
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
