@@ -1,201 +1,247 @@
 # FlashCards QA Learning
 
-A question study and practice app that runs on your computer. It loads the Q/A tabs from your OneDrive workbook on launch; you can also import another workbook, study questions and answers, practice by category, and retry questions you missed.
+Turn your interview Q&A workbook (Excel, on OneDrive) into a daily study system. You can study and practise flashcards, follow a plan sized to your free time, and review each card just before you'd forget it.
 
-[How it works](#how-it-works) · [Use cases](#use-cases) · [Quick start](#quick-start) · [Features](#features) · [Import questions](#import-questions) · [Data storage](#data-storage) · [Mac app](#mac-app)
+There are two ways to use it:
 
-<img width="1046" height="652" alt="Screenshot 2026-11-18 at 10 49 15 PM" src="https://github.com/user-attachments/assets/b7500171-dc94-483a-aee9-c339e4a7fd5b" />
+- **Mac app (recommended):** a native macOS app with the study plan, the FSRS memory algorithm, card timers, session reminders, and question editing that saves to Excel.
+- **Web app:** the original React app that runs in your browser. It's simpler: study and practice only.
+
+![FlashCards QA Mac app — categories](docs/screenshots/mac-home.jpg)
+
+[What it does](#what-it-does) · [Quick start](#quick-start) · [Use cases](#use-cases) · [Study algorithm](#study-algorithm-fsrs) · [Mac app guide](#mac-app-guide) · [Web app guide](#web-app-guide) · [Workbook format](#workbook-format) · [Data and privacy](#data-and-privacy) · [Development](#development)
 
 ## What it does
 
-FlashCards QA Learning turns your interview Q&A workbook into a focused flashcard practice session. Choose one category or the full bank, decide whether to shuffle, and work through questions at your own pace.
-
-## How it works
-
-1. When the app starts, its local service looks for `InterviewPrepare.xlsx` in the configured OneDrive interview folder. It also recognizes the filename `Interview Prepare.xlsx`.
-2. The app reads only worksheets whose A1 cell contains `QA`. Each accepted worksheet becomes a category named exactly after its tab.
-3. Questions and answers are read from the worksheet rows below the A1 marker. Write each question in column A and its answer in column B, leaving the marker in A1. Repeated question text is skipped so the same question does not appear more than once in the bank.
-4. Choose a category and optionally select a question range. Select **Study** to see each question with its answer, or **Start Practice** to reveal answers and mark whether you knew them.
-5. The app tracks results for the session and lets you retry the questions you missed. Cards are read-only in the web app; it never writes changes to the OneDrive workbook. (The Mac app can edit questions; see [Editing questions](#editing-questions).)
-6. Use **Refresh** after changing the workbook in Excel to load its latest tabs and content. A manually imported workbook replaces the current in-app bank for that session; its edits are not written back to the configured OneDrive workbook.
-
-## Use cases
-
-- **Prepare for a specific interview topic:** Select a category such as `Resume QA` or `Embedded QA` and practice only the questions you need.
-- **Focus on a smaller set:** Set a range such as 10 through 20 to review those questions from the selected category.
-- **Review weak areas:** Mark difficult cards **Practice again**, then retry only the missed questions at the end of the session.
-- **Study at your own pace:** Open a category in **Study** mode to read each question with its answer and move back and forth through the selected cards.
-- **Keep practice aligned with workbook updates:** Add or remove questions, mark a worksheet with `QA` in A1, or rename a tab in Excel, then select **Refresh** in the app.
+| | Mac app | Web app |
+|---|:---:|:---:|
+| Loads the OneDrive workbook on launch, Refresh, Import Excel | ✅ | ✅ |
+| Study mode (question + answer) and Practice mode (reveal, then rate) | ✅ | ✅ |
+| Category filter, question range, shuffle, retry missed | ✅ | ✅ |
+| **FSRS-5 spaced repetition** with Again / Hard / Good / Easy ratings | ✅ | — |
+| **Study plan**: daily sessions, carry-over of missed work, finish-date estimate, 14-day outlook | ✅ | — |
+| **Reminders** before each study session | ✅ | — |
+| **Card timer**: 5 min per Q&A, 20 min per C program; studying and revising time logged | ✅ | — |
+| **Edit questions**: add, edit, reorder, delete, saved straight to Excel with backups | ✅ | — |
+| Code font for C Programs, light and dark mode, keyboard shortcuts | ✅ | — |
+| Runs without Terminal or a browser | ✅ | — |
 
 ## Quick start
 
-### What you need
+Both versions read the same workbook: `InterviewPrepare.xlsx` (or `Interview Prepare.xlsx`) in
+`~/Library/CloudStorage/OneDrive-Personal/Interview/Interview Preparation`. See [Workbook format](#workbook-format) for how to lay out the sheets.
 
-- [Node.js](https://nodejs.org/) with npm
-- Your question workbook in `.xlsx` or `.xls` format (optional; you can import it after launching the app)
+### Option 1 — Mac app (recommended)
 
-### Install and run
+**What you need:** macOS 14 or later, and Xcode (or the Xcode command-line tools) to build it.
 
-Open Terminal in the project folder and run:
+```bash
+cd mac
+./build-app.sh --install
+```
+
+This builds the app and copies **FlashCards QA** into `/Applications`. Open it from Launchpad or Spotlight. It loads your workbook straight away; you don't need Terminal or a browser after this.
+
+- The first time you open the Study Plan, macOS asks to allow notifications. Allow them to get reminders before each session.
+- If your workbook is somewhere else, change the folder in **Settings (⌘,) › Workbook folder**.
+- To update the app after pulling new code, run `./build-app.sh --install` again. Your progress is kept.
+- The build is signed only for your own Mac (it isn't notarized for sharing).
+
+### Option 2 — React web app
+
+**What you need:** [Node.js](https://nodejs.org/) with npm.
+
+From the project folder:
 
 ```bash
 npm install
+```
+
+```bash
 npm start
 ```
 
-This starts both the local OneDrive reader and the React app. On this computer, you can enter the folder with:
+This starts a small local service that reads the OneDrive workbook, plus the React app. Open the address shown in Terminal, usually [http://localhost:3002](http://localhost:3002). Keep the Terminal window open while you use it, and press **Ctrl+C** to stop it. After the first time, `npm start` is all you need.
 
-```bash
-cd "/Users/suren/FlashCards QA Learning"
-```
+## Use cases
 
-Then open the local address printed in Terminal, usually [http://localhost:3002](http://localhost:3002). Keep the terminal window open while you use the app. Press **Ctrl+C** in that window to stop it.
+- **Study daily while job hunting:** set your free time as morning, afternoon and evening sessions. The plan gives each session a target, moves missed work to the next session, and shows when you'll have learned everything.
+- **Remember answers until the interview:** practise with honest ratings (Again / Hard / Good / Easy). FSRS brings each card back just before you'd forget it, so time goes to weak cards, not ones you already know.
+- **Skip what you already know:** mark known cards **✓ Already studied** so they're scheduled weeks out and stay off today's list.
+- **Handle interview or busy days:** **Busy today** moves the day's work to tomorrow and updates the finish date.
+- **Practise one topic:** pick a category such as `Embedded QA` or `C Programs`, optionally a range such as questions 10–20, then Study or Practice.
+- **Write code from memory:** C Programs cards use a code font with a 20-minute time box; write the program first, then reveal and compare.
+- **Track your effort:** see studying and revising time per day, per category and per card, and which cards are slowest.
+- **Keep the question bank up to date without opening Excel:** add, edit, reorder or delete questions from the app. Changes save to the workbook and the plan updates straight away.
+- **Use Excel when you prefer:** edit the workbook in Excel, then select **Refresh**.
 
-You only need to run `npm install` once for this folder. Later, run `npm start` to launch the app.
+## Study algorithm (FSRS)
 
-## Features
+The Mac app schedules reviews with **FSRS-5** (Free Spaced Repetition Scheduler), the algorithm Anki has used by default since 2023.
 
-| Feature | What it does |
-| --- | --- |
-| Categories | The app lists only tabs marked `QA` in A1, and displays each category using the exact worksheet name. |
-| OneDrive loading | Load `InterviewPrepare.xlsx` from the configured OneDrive folder when the app launches. Both `InterviewPrepare.xlsx` and `Interview Prepare.xlsx` filenames are recognized. |
-| QA tabs | Load every workbook tab whose cell A1 contains the `QA` marker. Other tabs are ignored. |
-| Manual import | Select another `.xlsx` or `.xls` workbook. It uses the same A1 marker rule and replaces the current Q/A bank. |
-| Refresh | Re-read the configured OneDrive workbook so Excel edits and removals appear in the app. |
-| Flashcards | Show a question first, reveal its answer when ready, then mark whether you knew it or need more practice. |
-| Study | Show the question and answer together, with Previous and Next navigation through the selected cards. |
-| Read-only workbook | The web app reads the configured workbook and does not write to it. The Mac app can edit it. |
-| Question range | In a category, choose inclusive **From** and **To** question numbers to practice only that slice. |
-| Shuffle | Randomize question order within the selected practice set. |
-| Results | See your score and review the questions marked for more practice. |
-| Retry | Start a new session containing only questions you marked for more practice. |
+![Practice with FSRS ratings](docs/screenshots/mac-practice.jpg)
 
-## Import questions
+### How it works
 
-For automatic loading, keep the workbook in `~/Library/CloudStorage/OneDrive-Personal/Interview/Interview Preparation` and name it `InterviewPrepare.xlsx` or `Interview Prepare.xlsx`. On launch, the app checks every tab and imports only those whose A1 cell contains `QA` (case-insensitive). The category name in the app matches the worksheet name exactly; rename a marked tab and use **Refresh** to update the category. Put each question in column A and its answer in column B, starting below the A1 marker. Optional `Question` and `Answer` headers are supported.
+FSRS keeps a small memory model for **each card**:
 
-Use **Refresh** to re-read the OneDrive workbook after editing it. Use **Import Excel** to load another local workbook with the same A1 marker rule. Each successful load replaces the current bank, so additions, edits, and deletions are reflected. Repeated question text across marked tabs is skipped.
+- **Stability:** how many days the memory lasts before your chance of recalling it drops to 90%.
+- **Difficulty:** how hard this card is for you, from 1 to 10.
+- **Retrievability:** your chance of recalling it today, which falls the longer you wait.
 
-## Practice workflow
+After you reveal an answer, rate how well you recalled it. Each button shows when you'll see the card next:
 
-1. Choose **All** or select a category.
-2. For a category, optionally set **From** and **To** to practice an inclusive range (for example, 10 through 20). Leave **Shuffle** enabled to randomize within that range, or turn it off to keep workbook order.
-3. Select **Start Practice**.
-4. Read the question, choose **Reveal Answer**, and mark **I knew it** or **Practice again** (in the Mac app: rate **Again / Hard / Good / Easy**). You can also skip a question.
-5. At the end, review missed questions and retry them, restart the session, or return to the categories.
+| Button | Key | Meaning | First-review gap |
+|---|---|---|---|
+| ❌ Again | 1 | Forgot it | under 1 day (tomorrow) |
+| 😬 Hard | 2 | Recalled with effort | 1 day |
+| ✅ Good | 3 | Recalled | 3 days |
+| ⭐ Easy | 4 | Instant recall | 16 days |
 
-## Study workflow
+FSRS updates stability and difficulty from your rating and schedules the next review for when your recall would drop to your **target recall** (90% by default; change it in **Settings › Memory**). Every successful review stretches the gap (for example 3 → 11 → 30+ days). A forgotten card comes back the next day.
 
-1. Choose **All** or select a category.
-2. For a category, optionally choose an inclusive **From** and **To** range.
-3. Select **Study** to read each question and answer together. Use **Previous** and **Next** to navigate; select **Back to categories** to leave study mode.
+### Why FSRS
 
-## Data storage
+| Approach | How it decides the next review | Drawback |
+|---|---|---|
+| Fixed steps (Leitner: 1, 3, 7, 16 days…) | The same gaps for every card | Ignores how hard each card is for you |
+| SM-2 (older Anki, SuperMemo) | A per-card "ease" factor | Cards can get stuck reviewing too often ("ease hell") |
+| **FSRS-5** | Models each card's memory and predicts your chance of recall | Needs honest ratings |
 
-The workbook remains the source of truth. On launch and when you select **Refresh**, the app reads the configured local OneDrive file through its local-only service. Cards cannot be edited in the web app, and neither OneDrive-loaded nor manually imported workbook data is written back to any workbook.
+- **More accurate:** in open benchmarks on millions of real reviews, FSRS predicts recall better than SM-2.
+- **Fewer reviews:** it needs about 20–30% fewer reviews for the same recall, which matters when you're also job hunting.
+- **Your choice of recall:** you set the recall level directly, for example 90%, instead of tuning obscure multipliers.
 
-## Mac app
+It's built on long-standing memory research: the **spacing effect** (reviews spread over growing gaps beat cramming), **retrieval practice** (recalling an answer beats re-reading it, so new cards end with **Test yourself**), and **interleaving** (due cards from different categories are mixed).
 
-A native SwiftUI version lives in [`mac/`](mac/). It reads the same OneDrive workbook directly, so there is no Node server, no Terminal window and no browser.
+### Rules worth knowing
 
-Build it and install it into `/Applications` (needs Xcode):
+- **Mastered:** FSRS expects you to still recall the card three weeks later (stability ≥ 21 days).
+- **Weak:** forgotten twice or more, or rated very difficult. FSRS already brings weak cards back sooner.
+- **Practice only:** answering a card that isn't due yet (for example from a category on the start screen) doesn't change its schedule. The card tells you so after you reveal the answer.
+- **New cards:** a new card joins the schedule after its first rating in **Test yourself**. **✓ Already studied** counts as an Easy rating.
 
-```bash
-cd mac && ./build-app.sh --install
-```
+## Mac app guide
 
-Then open **FlashCards QA** from Launchpad or Spotlight. It has the same features as the web app, plus:
+### Main page
 
-- **⌘R** refreshes the workbook, and **⌘O** imports another one.
-- **Settings (⌘,)** changes the workbook folder if your OneDrive path moves.
-- In practice mode, **Space** reveals the answer, **K** marks it known, **P** marks it to practice again, **S** skips, and **Esc** ends the session. In study mode, use **←/→**.
-- It follows the system light or dark theme.
+- Pick **All** or a category, then **Study** or **Start Practice**. You can set an inclusive **From/To** range and turn **Shuffle** on or off.
+- **📌 Today's plan** shows what's left today and links to the Study Plan.
+- **⌘R** refreshes the workbook, **⌘O** imports another `.xlsx`, and **⌘L** opens the Study Plan.
+
+### Study and Practice
+
+- **Study:** shows the question and answer together. Use ← / → to move. The last card offers **✍️ Test yourself**, which practises the cards you just read.
+- **✓ Already studied** (key **A**): for new cards you already know. It counts as done today and comes back in about 16 days.
+- **Practice:**
+  - **Space** reveals the answer, **1–4** rate it, **S** skips, **Esc** ends.
+  - **Results** lists the cards you **forgot** and the **shaky** (Hard) ones. **Retry missed** practises the forgotten ones again.
+- **C Programs:** shown in a code font, with a reminder to write the code yourself before revealing the answer.
 
 ### Card timer
 
-Each card in Study and Practice mode has a timer in its top-right corner. It's ready at **5 minutes for Q&A cards** and **20 minutes for C Programs** (any category with "program" in its name). You can change the time for each category in **Settings (⌘,)**.
+Every card in Study and Practice has a timer in its corner. It's ready at **5 minutes for Q&A** and **20 minutes for C Programs** (you can set a time for each category in Settings).
 
-- Select ▶ (or press **⌥Space**) to start it and ⏸ to pause it. Moving to another card stops the timer, and the next card's timer is ready but not started.
-- When the time runs out, a sound plays and the timer turns red and counts overtime (for example `+1:20`). Move on when you're ready.
-- Time counts as **Studying** in Study mode and **Revising** in Practice, and it is recorded per category and per card. Time while the Mac is asleep isn't counted.
-- After 50 minutes of timed work without a 5-minute pause, the app suggests a 10-minute break.
-- Time is kept after Refresh, Import Excel and quitting. If you quit mid-card, that card's timer continues from the same point when you open it again that day.
+- **Start and pause:** select ▶ or press **⌥Space**. Moving to another card stops the timer.
+- **Overtime:** when the time runs out, a sound plays and the timer turns red and counts overtime (`+1:20`).
+- **Logging:** time counts as **Studying** in Study mode and **Revising** in Practice, and is kept per category and per card. Time while the Mac sleeps isn't counted.
+- **Breaks:** after 50 minutes of timed work, the app suggests a 10-minute break.
 
 ### Study plan
 
-Open it with **🗓 Study Plan** or **⌘L**. The plan doesn't use a target date. It sizes each day to the study sessions you set and estimates when you'll finish.
+![Study plan with FSRS and daily sessions](docs/screenshots/mac-study-plan.jpg)
 
-| Session | Default time | Focus |
+The plan has no deadline. It sizes each day to your sessions and estimates when you'll finish.
+
+| Session (default) | Time | Focus |
 |---|---|---|
 | 🌅 Morning | 9:30–12:00 | Learn new cards: read them, then **Test yourself** |
 | 💼 Job search | 12:00–14:30 | Applications and lunch (not counted as study) |
 | ☀️ Afternoon | 14:30–16:30 | Review due cards |
 | 🌙 Evening | 19:30–20:30 | Review due cards the afternoon didn't fit |
 
-You can change times, turn sessions on or off, and set each session's focus in **Settings › Daily sessions**.
+- **Targets:**
+  - Each session gets a target when the day starts, for example "Learn 8 new: C Programs ×2, C QA ×6 · ~70 min".
+  - New cards rotate across categories.
+  - Time estimates use your card time boxes, then your real average once a category has 10 timed cards.
+- **Carry-over:** when a session ends with work left, the rest moves to the next session (or to tomorrow), marked **↪ carried**. **Busy today** moves everything to tomorrow.
+- **Finish estimate:** **All cards learned by** and **Mastered by** dates. If you fall behind, the page shows how many days the date has slipped.
+- **Progress:** overall Learned and Mastered bars, a New / Learning / Mastered bar for each category, and the weak-card count.
+- **Next 14 days:** new and review counts per session, the estimated time, and carried work.
+- **Reminders:** a notification 10 minutes before each session (you can change this) says what to cover.
+- **Study time:** totals for today, the last 7 days and all time; a 14-day chart; the average time per card; and your slowest cards.
 
-- **Targets:** each session gets a target when the day starts, for example "Learn 8 new: C Programs ×2, C QA ×6 · ~70 min". A new card costs its time box. A review costs a fifth of that (1 minute for Q&A, 4 for C programs). Once a category has 10 timed cards, the plan uses your real average time instead. New cards rotate across categories, so C programs don't all pile up at the end.
-- **Missed work carries over:** when a session ends with work left, the rest moves to the next session (or to tomorrow's first session) and is marked "↪ carried". **Busy today (interview / applications)** moves everything left today to tomorrow.
-- **Finish estimate:** **All cards learned by** and **Mastered (3-week memory) by** dates, worked out from your sessions. If you fall behind, the page shows how many days later the date is than it was this morning.
-- **Progress:** overall Learned and Mastered bars, and a New / Learning / Mastered bar for each category.
-- **Next 14 days:** new and review counts for each session, estimated time, and carried work.
-- **Reminders:** a notification arrives 10 minutes before each session (you can change this in Settings), for example "☀️ Afternoon session at 14:30 — revise 14 (C QA 8, Resume QA 6)". Allow notifications for FlashCardsQA when macOS asks, or later in System Settings › Notifications.
-- **Study time:** totals for today, the last 7 days and all time, a 14-day chart, the average time per card by category, and your slowest cards.
-
-### Memory algorithm (FSRS) and ratings
-
-In the Mac app, the plan schedules reviews with **FSRS-5** (Free Spaced Repetition Scheduler), which Anki has used by default since 2023. FSRS tracks each card's **stability** (how long the memory lasts), its **difficulty**, and your **chance of recalling it today**. It schedules the next review for when that chance falls to your target recall (90% by default, adjustable from 80% to 97% in **Settings › Memory**). Easy cards wait longer and hard cards come back sooner. In public benchmarks it predicts recall better than SM-2 (the older Anki/SuperMemo algorithm) and needs fewer reviews for the same recall.
-
-After **Reveal Answer** in Practice, rate how well you recalled the card. Each button shows when you'll see the card next:
-
-| Button | Key | Meaning |
-|---|---|---|
-| ❌ Again | 1 | Forgot. Comes back tomorrow and counts as missed for **Retry missed**. |
-| 😬 Hard | 2 | Recalled with effort. A shorter gap; listed as "shaky" on the results screen. |
-| ✅ Good | 3 | Recalled. (**K** still works.) |
-| ⭐ Easy | 4 | Instant recall. A much longer gap. |
-
-On a first review, the gaps are about 1, 1, 3 and 16 days. A card counts as **Mastered** once FSRS expects you to still recall it three weeks later. It counts as **Weak** after 2 or more lapses, or once FSRS rates it as very difficult; the category progress shows how many weak cards each category has. FSRS already brings weak cards back sooner, so the plan has no separate weak-card practice. Reviews saved before FSRS are converted automatically, and their due dates stay the same.
-
-**What updates the schedule:** only answers to **new** cards, cards that are **due**, or cards already reviewed **today** (such as **Retry missed** and **Quick recall**) change a card's schedule. If you practise a card that isn't due yet, for example from a category on the start screen, it's **practice only**: the time still counts as revising, but its due date doesn't change, and the card says so after you reveal the answer. A new card counts toward a session only after you rate it in **Test yourself**; reading it in Study mode isn't enough.
-
-For C Programs, Practice reminds you to write the code yourself before revealing the answer, because producing an answer from memory helps it stick. The plan page has a short explanation and job-hunt tips under "Why this plan works".
-
-Progress is saved in `~/Library/Application Support/FlashCardsQA/progress.json`, separate from your workbook. Cards are matched by their question text, so their history survives Refresh, Import, reordered rows and renamed tabs. If you edit a question's text in the app, its history moves with it.
-
-### Already studied
-
-In Study mode, cards you haven't practised yet have a **✓ Already studied** button (key **A**). Use it for cards you already know from before. The card counts as done for today's session, gets an FSRS **Easy** first review (it comes back in about 16 days), and is left out of the **Test yourself** round.
+Session times, focus, the reminder lead time, the time per category and the target recall are all in **Settings (⌘,)**.
 
 ### Editing questions
 
-Select a category on the main page. Below **Study / Start Practice**, a **Questions (N)** section lists that category's questions. It is collapsed by default; select it to expand it.
+![Question list for a category](docs/screenshots/mac-questions.jpg)
 
-- **Reorder:** drag a question by its ≡ handle onto another position. The rows move in Excel, including any extra columns such as an ID.
-- **View and edit:** select a question to see its answer, then **✏️ Edit**. Changes save automatically about 1.5 seconds after you stop typing, and when you select **Done**.
-- **Add:** **＋ Add question** adds a new row at the end of that category's sheet.
-- **Delete:** **🗑 Delete** asks for confirmation, then removes the row and moves the rows below it up.
+Select a category, then expand **Questions (N)** below Study / Start Practice. It's collapsed by default.
 
-Changes are written straight to the workbook the questions came from: the OneDrive file, or a workbook you imported. The study plan updates straight away: new questions become new cards, deleted ones drop out, and edited ones keep their review history. Duplicate questions aren't allowed.
+- **Reorder:** drag ≡ onto another row. The rows move in Excel, together with any extra columns.
+- **View and edit:** select a question to see its answer, then **✏️ Edit**. It saves automatically about 1.5 seconds after you stop typing.
+- **Add:** **＋ Add question** adds a row at the end of that category's sheet.
+- **Delete:** **🗑 Delete** asks for confirmation, then removes the row with no gap left behind.
+
+Changes save straight to the workbook the questions came from, and the study plan updates. Edited questions keep their review history, and duplicate questions aren't allowed.
 
 **Safety:**
-- **Backups:** before saving, the app copies the workbook to `~/Library/Application Support/FlashCardsQA/backups/` (at most one copy every 5 minutes; the last 30 are kept).
-- **Workbook open in Excel:** the app doesn't save while the workbook is open in Excel. It shows a message and saves automatically once you close the file there.
-- **What changes:** only the edited sheet's question and answer cells change. Edited cells are saved as plain text; other sheets and formatting are kept.
-- **File type:** only `.xlsx` files can be edited.
+- **Backups:** before saving, a backup goes to `~/Library/Application Support/FlashCardsQA/backups/` (at most one every 5 minutes; the last 30 are kept).
+- **Workbook open in Excel:** the app waits and saves once you close it there.
+- **Checked before replacing:** each saved file is checked to still open as a valid workbook before it replaces the original.
+- **What changes:** only the edited question and answer cells. They're saved as plain text, and other sheets and formatting are kept.
+- **File type:** only `.xlsx` files can be edited. `.xls` files are read-only.
 
-C Programs questions and answers are shown in a code font everywhere in the Mac app.
+### Keyboard shortcuts
 
-Notes:
+| Where | Keys |
+|---|---|
+| Anywhere | ⌘R Refresh · ⌘O Import Excel · ⌘L Study Plan · ⌘, Settings · ⌥Space start/pause the card timer |
+| Study | ← / → Previous / Next · A Already studied · Esc back |
+| Practice | Space reveal · 1–4 Again / Hard / Good / Easy (K = Good, P = Again) · S skip · Esc end |
 
-- Only `.xlsx` workbooks are supported. Save older `.xls` files as `.xlsx` first.
-- The build is signed ad hoc for your Mac only. It is not notarized for sharing.
-- Run the parser tests with `cd mac && swift test`. To work on the code in Xcode, open `mac/Package.swift`.
+## Web app guide
 
-## Build for production
+![Web app](https://github.com/user-attachments/assets/b7500171-dc94-483a-aee9-c339e4a7fd5b)
 
-To create an optimized production build, run:
+The web app covers studying and practising. It doesn't have the study plan, FSRS, timers or editing.
 
-```bash
-npm run build
-```
+1. Choose **All** or a category. For a category, you can set an inclusive **From/To** range, and choose whether to **Shuffle**.
+2. **Study:** read each question with its answer, using **Previous / Next**.
+3. **Start Practice:** **Reveal Answer**, then mark **I knew it** or **Practice again**, or skip.
+4. At the end, review the missed questions and **Retry** them, **Restart**, or go back to the categories.
+5. Use **Refresh** after editing the workbook in Excel, or **Import Excel** to load another `.xlsx` or `.xls` file for that session.
+
+The web app only reads the workbook and never writes to it.
+
+## Workbook format
+
+- **Which sheets load:** only sheets whose cell **A1** contains `QA` (case-insensitive, also `Q&A` or `Q/A`). Each one becomes a category named after its tab; other tabs are ignored.
+- **Layout:** below A1, put each **question in column A** and its **answer in column B**. Optional `Question` / `Answer` header rows are recognised, and those columns can be anywhere.
+- **Duplicates:** repeated question text is skipped, so each question appears once.
+- **Filename:** `InterviewPrepare.xlsx` and `Interview Prepare.xlsx` are both recognised. **Import Excel** loads any other workbook that follows the same rules.
+
+## Data and privacy
+
+- **Everything stays on your Mac.** The apps read the workbook from your local OneDrive folder; nothing is uploaded anywhere.
+- **Mac app progress** (review history, plan, time, settings) is saved in `~/Library/Application Support/FlashCardsQA/progress.json`, separate from the workbook. Cards are matched by their question text, so history survives Refresh, Import, reordered rows and renamed tabs.
+- **The workbook stays the source of truth for questions.** The Mac app writes to it only when you add, edit, reorder or delete questions, and keeps backups. The web app never writes to it.
+
+## Development
+
+| Path | What's there |
+|---|---|
+| `src/`, `server.js`, `start.js` | React web app and its local workbook reader (Node) |
+| `mac/Sources/FlashCardsCore/` | Mac app logic: workbook reader and writer, FSRS, session planner, progress storage |
+| `mac/Sources/FlashCardsQA/` | SwiftUI app: screens, card timer, reminders |
+| `mac/Tests/` | Unit tests for the parser, FSRS, planner, workbook writer and storage |
+
+**Mac app:**
+- Run the tests with `cd mac && swift test`.
+- Rebuild with `./build-app.sh` (add `--install` to copy it to `/Applications`).
+- To work in Xcode, open `mac/Package.swift`.
+
+**Web app:**
+- Run the tests with `npm test`.
+- Make a production build with `npm run build`.
