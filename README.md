@@ -200,6 +200,8 @@ Open it with **🗓 Study Plan** or **⌘L**. It has two parts, in the order you
 
   "Revise as per algo" lines are skipped, because part 1 already handles revision. Dates such as `[Nov 25]`, `25 Nov`, `25th November` and `2026-11-25` are all understood.
 
+**3 · Study notes.** Your own notes for the whole preparation, such as which phase you're in and what each phase covers. Select **✏️ Edit notes** (or double-click the notes), write freely and press **Save** (⌘S). A line starting with `*` or `-` becomes a bullet, and a line just above bullets becomes a heading. The notes are saved with your progress, not in the workbook.
+
 Further down you'll find how FSRS schedules your reviews and your study time (today, the last 7 days and all time; a 14-day chart; the average time per card; your slowest cards).
 
 **Morning reminder:** each morning (9:00 by default; change it in **Settings › Reminder**) a notification tells you how many cards to revise and lists your first tasks.

@@ -122,3 +122,24 @@ final class MigrationTests: XCTestCase {
         XCTAssertFalse(reencoded.contains("slots"), "session data is dropped")
     }
 }
+
+final class StudyNotesTests: XCTestCase {
+    func testHeadingsBulletsAndGaps() {
+        let l = StudyNotes.lines("PHASE 1 - Start\n* C QA\n- C Programs\n\n\nJust a note\nDuring interview\n•  HR QA\n")
+        XCTAssertEqual(l, [.heading("PHASE 1 - Start"), .bullet("C QA"), .bullet("C Programs"), .gap,
+                           .text("Just a note"), .heading("During interview"), .bullet("HR QA")])
+    }
+
+    func testStarterHasFourSections() {
+        let headings = StudyNotes.lines(StudyNotes.starter).filter { if case .heading = $0 { true } else { false } }
+        XCTAssertEqual(headings.count, 4)
+    }
+
+    func testNotesRoundTrip() throws {
+        var d = ProgressData()
+        d.studyNotes = "PHASE 1\n* C QA"
+        let back = try JSONDecoder().decode(ProgressData.self, from: JSONEncoder().encode(d))
+        XCTAssertEqual(back.studyNotes, "PHASE 1\n* C QA")
+        XCTAssertNil(try JSONDecoder().decode(ProgressData.self, from: Data("{}".utf8)).studyNotes)
+    }
+}

@@ -260,12 +260,16 @@ public struct ProgressData: Codable, Equatable, Sendable {
     public var useCheckpoints = true
     /// Day all previously studied cards were restarted on the checkpoints (one-time switch-over).
     public var checkpointsRestartedDay: String?
+    /// Your own notes on the Study Plan page (phases, priorities). nil = never set (the app fills
+    /// in a starting outline once).
+    public var studyNotes: String?
 
     public init() {}
 
     enum CodingKeys: String, CodingKey {
         case version, timeLog, cards, categoryMinutes, timing, cardSeconds, activeCard,
-             tasks, reminderOn, reminderMinute, desiredRetention, useCheckpoints, checkpointsRestartedDay
+             tasks, reminderOn, reminderMinute, desiredRetention, useCheckpoints, checkpointsRestartedDay,
+             studyNotes
     }
 
     /// Reads every earlier version: missing fields get defaults; data from removed features
@@ -286,6 +290,7 @@ public struct ProgressData: Codable, Equatable, Sendable {
         desiredRetention = try c.decodeIfPresent(Double.self, forKey: .desiredRetention) ?? d.desiredRetention
         useCheckpoints = try c.decodeIfPresent(Bool.self, forKey: .useCheckpoints) ?? d.useCheckpoints
         checkpointsRestartedDay = try c.decodeIfPresent(String.self, forKey: .checkpointsRestartedDay)
+        studyNotes = try c.decodeIfPresent(String.self, forKey: .studyNotes)
     }
 
     /// Moves everything stored under a card key to a new key (the question text was edited).

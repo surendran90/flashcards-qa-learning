@@ -170,3 +170,65 @@ public enum PlanText {
         return Parsed(tasksByDay: out, skippedRevisionLines: skipped, unassignedLines: unassigned)
     }
 }
+
+/// Study notes shown on the Study Plan page. Plain text you edit freely:
+/// "* " / "- " / "• " lines are bullets, a line followed by bullets is a heading.
+public enum StudyNotes {
+    public enum Line: Equatable, Sendable {
+        case heading(String)
+        case bullet(String)
+        case text(String)
+        case gap
+    }
+
+    public static let starter = """
+    PHASE 1 - To get Initial Confidence
+    * All Modules Basic Knowledge
+    * Resume Edit + Resume Related QA
+    * C Programs
+    * C QA
+    * Previous Interview QA
+
+    PHASE 2 - To get embedded Confidence (Don't add anything additional)
+    * Embedded QA
+    * Embedded Programs
+    * General interview QA
+
+    PHASE 3 - To get embedded Confidence
+    * Embedded Programs
+    * Resume Edit + Resume Related QA
+    * C Programs
+    * C QA
+
+    During Interview Preparation
+    * Good Background
+    * Revision
+    * General interview QA
+    * HR QA Handling
+    """
+
+    static func bulletText(_ raw: String) -> String? {
+        let t = raw.trimmingCharacters(in: .whitespaces)
+        for p in ["* ", "- ", "• ", "– "] where t.hasPrefix(p) {
+            return String(t.dropFirst(p.count)).trimmingCharacters(in: .whitespaces)
+        }
+        return nil
+    }
+
+    public static func lines(_ text: String) -> [Line] {
+        let raw = text.components(separatedBy: .newlines)
+        var out: [Line] = []
+        for (i, r) in raw.enumerated() {
+            let t = r.trimmingCharacters(in: .whitespaces)
+            if t.isEmpty {
+                if let last = out.last, last != .gap { out.append(.gap) }
+                continue
+            }
+            if let b = bulletText(t) { out.append(.bullet(b)); continue }
+            let next = raw[(i + 1)...].first { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+            out.append(next.flatMap(bulletText) != nil ? .heading(t) : .text(t))
+        }
+        while out.last == .gap { out.removeLast() }
+        return out
+    }
+}

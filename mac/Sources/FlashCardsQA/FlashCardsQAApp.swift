@@ -29,6 +29,10 @@ final class AppModel {
             store.data.checkpointsRestartedDay = today
             store.saveNow()
         }
+        if store.data.studyNotes == nil {
+            store.data.studyNotes = StudyNotes.starter
+            store.saveNow()
+        }
         session = StudySession(progress: store)
         timer = CardTimer(store: store, session: session)
         reminder = RevisionReminder(session: session, store: store)

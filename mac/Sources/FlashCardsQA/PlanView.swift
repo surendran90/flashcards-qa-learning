@@ -37,6 +37,7 @@ struct PlanView: View {
                 RevisionPanel()
             }
             TasksPanel()
+            NotesPanel()
             AlgorithmPanel()
             TimeStatsPanel()
             ResearchNote()
@@ -168,6 +169,90 @@ private struct RevisionPanel: View {
 }
 
 // MARK: - 2. Your plan (self-written tasks)
+
+/// 3 · Study notes: your own phases and priorities, saved with your progress.
+private struct NotesPanel: View {
+    @Environment(StudySession.self) private var session
+    @State private var editing = false
+    @State private var draft = ""
+
+    private var notes: String { session.progress.data.studyNotes ?? "" }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                SectionTitle(text: "3 · Study notes")
+                Spacer()
+                if editing {
+                    Button("Cancel") { editing = false }
+                        .buttonStyle(LinkButtonStyle())
+                    Button("Save") { save() }
+                        .buttonStyle(FilledButtonStyle(color: Theme.accent))
+                        .keyboardShortcut("s", modifiers: .command)
+                } else {
+                    Button("✏️ Edit notes") { startEditing() }
+                        .buttonStyle(OutlineButtonStyle())
+                }
+            }
+            if editing {
+                TextEditor(text: $draft)
+                    .font(.system(size: 13))
+                    .scrollContentBackground(.hidden)
+                    .padding(8)
+                    .frame(minHeight: 260)
+                    .background(Theme.bg, in: RoundedRectangle(cornerRadius: 8))
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
+                Text("Start a line with * or - for a bullet; a line above bullets becomes a heading. ⌘S saves.")
+                    .font(.system(size: 11)).foregroundStyle(Theme.muted)
+            } else if notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Text("No notes yet. Select Edit notes to write your phases, priorities or reminders.")
+                    .font(.system(size: 13)).foregroundStyle(Theme.muted)
+            } else {
+                rendered
+                    .contentShape(Rectangle())
+                    .onTapGesture(count: 2) { startEditing() }
+                    .help("Double-click to edit")
+            }
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .panel()
+    }
+
+    private var rendered: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(Array(StudyNotes.lines(notes).enumerated()), id: \.offset) { _, line in
+                switch line {
+                case .heading(let t):
+                    Text(t).font(.system(size: 14, weight: .bold)).padding(.top, 4)
+                case .bullet(let t):
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text("•").foregroundStyle(Theme.accent).font(.system(size: 13, weight: .bold))
+                        Text(t).font(.system(size: 13))
+                    }
+                    .padding(.leading, 10)
+                case .text(let t):
+                    Text(t).font(.system(size: 13))
+                case .gap:
+                    Spacer().frame(height: 6)
+                }
+            }
+        }
+        .textSelection(.enabled)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func startEditing() {
+        draft = notes
+        editing = true
+    }
+
+    private func save() {
+        session.progress.data.studyNotes = draft
+        session.progress.saveNow()
+        editing = false
+    }
+}
 
 private struct TasksPanel: View {
     @Environment(StudySession.self) private var session
